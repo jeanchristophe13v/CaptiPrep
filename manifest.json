@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "CaptionCards",
+  "name": "CaptiPrep",
   "version": "0.1.0",
   "description": "Extract YouTube captions, filter key words/phrases with LLM, and generate study cards.",
   "action": {
-    "default_title": "CaptionCards"
+    "default_title": "CaptiPrep"
   },
   "permissions": [
     "storage",

@@ -1,6 +1,6 @@
 // Content script: injects UI, extracts YouTube captions, orchestrates LLM flow
 
-const CC_NS = 'CCAPTIONCARDS';
+const CC_NS = 'CCAPTIPREPS';
 
 // Simple state
 let modalOpen = false;
@@ -52,7 +52,7 @@ function createUI() {
     <div class="cc-overlay" role="dialog" aria-modal="true">
       <div class="cc-modal">
         <div class="cc-header">
-          <div class="cc-title">CaptionCards</div>
+          <div class="cc-title">CaptiPrep</div>
           <div class="cc-actions">
             <button class="cc-icon" id="cc-settings" title="Settings" aria-label="Settings">${iconSettings()}</button>
             <button class="cc-icon" id="cc-close" title="Close" aria-label="Close">${iconClose()}</button>
