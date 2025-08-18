@@ -5,6 +5,7 @@ const CC_NS = 'CCAPTIPREPS';
 // Simple state
 let modalOpen = false;
 let uiRoot = null;
+let debugLogOpen = false;
 let currentState = {
   videoId: null,
   title: null,
@@ -13,6 +14,13 @@ let currentState = {
   selected: null,
   cards: null,
   error: null,
+};
+
+// Debug log storage for temporary inspection
+let debugLog = {
+  subtitlesText: null,
+  llm1Response: null,
+  llm2Response: null,
 };
 
 chrome.runtime.onMessage.addListener((msg) => {
@@ -54,6 +62,7 @@ function createUI() {
         <div class="cc-header">
           <div class="cc-title">CaptiPrep</div>
           <div class="cc-actions">
+            <button class="cc-icon" id="cc-debug-log" title="Debug Log" aria-label="Debug Log">${iconLog()}</button>
             <button class="cc-icon" id="cc-settings" title="Settings" aria-label="Settings">${iconSettings()}</button>
             <button class="cc-icon" id="cc-close" title="Close" aria-label="Close">${iconClose()}</button>
           </div>
@@ -74,6 +83,7 @@ function createUI() {
 
   uiRoot.querySelector('#cc-close').addEventListener('click', closeModal);
   uiRoot.querySelector('#cc-settings').addEventListener('click', () => chrome.runtime.sendMessage({ type: 'CC_OPEN_OPTIONS' }));
+  uiRoot.querySelector('#cc-debug-log').addEventListener('click', toggleDebugLog);
   uiRoot.querySelector('#cc-regenerate').addEventListener('click', () => startFlow(true));
   uiRoot.querySelector('#cc-delete').addEventListener('click', deleteAllForThisVideo);
   uiRoot.querySelector('#cc-export').addEventListener('click', exportCSV);
@@ -84,6 +94,8 @@ function getStyles() {
     #cc-root { position: fixed; inset: 0; z-index: 2147483647; display:none; }
     .cc-overlay { position: absolute; inset:0; background: rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; }
     .cc-modal { width: min(960px, 96vw); height: min(680px, 92vh); background:#fff; color:#000; border:3px solid #000; box-shadow: 8px 8px #000; display:flex; flex-direction:column; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+    .cc-debug-overlay { position: absolute; inset:0; background: rgba(0,0,0,0.8); display:flex; align-items:center; justify-content:center; z-index: 10; }
+    .cc-debug-modal { width: min(1200px, 96vw); height: min(800px, 92vh); background:#fff; color:#000; border:3px solid #000; box-shadow: 8px 8px #000; display:flex; flex-direction:column; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
     .cc-header { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:3px solid #000; background: #f5f5f5; }
     .cc-title { font-weight: 800; letter-spacing: 1px; }
     .cc-actions { display:flex; gap:8px; }
@@ -105,6 +117,11 @@ function getStyles() {
     .cc-input { padding:6px 8px; border:2px solid #000; }
     .cc-small { color:#333; font-size:12px; }
     .cc-spinner { width: 18px; height: 18px; border: 3px solid #000; border-right-color: transparent; border-radius: 50%; animation: ccspin 0.8s linear infinite; }
+    .cc-debug-tabs { display:flex; border-bottom:2px solid #000; }
+    .cc-debug-tab { padding:8px 12px; border-right:2px solid #000; background:#f0f0f0; cursor:pointer; }
+    .cc-debug-tab.active { background:#000; color:#fff; }
+    .cc-debug-content { flex:1; padding:12px; overflow:auto; background:#fafafa; }
+    .cc-debug-pre { background:#fff; border:1px solid #ccc; padding:12px; margin:8px 0; white-space:pre-wrap; word-break:break-word; max-height:600px; overflow:auto; font-family:monospace; font-size:12px; }
     @keyframes ccspin { to { transform: rotate(360deg); } }
   `;
 }
@@ -114,6 +131,97 @@ function iconClose() {
 }
 function iconSettings() {
   return `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M19.14,12.94a7.43,7.43,0,0,0,.05-.94,7.43,7.43,0,0,0-.05-.94l2.11-1.65a.48.48,0,0,0,.12-.61l-2-3.46a.5.5,0,0,0-.6-.22l-2.49,1a7,7,0,0,0-1.63-.94l-.38-2.65A.5.5,0,0,0,13.72,2H10.28a.5.5,0,0,0-.5.42L9.4,5.07a7,7,0,0,0-1.63.94l-2.49-1a.5.5,0,0,0-.6.22l-2,3.46a.5.5,0,0,0,.12.61L5,11.06a7.43,7.43,0,0,0-.05.94,7.43,7.43,0,0,0,.05.94L2.86,14.59a.48.48,0,0,0-.12.61l2,3.46a.5.5,0,0,0,.6.22l2.49-1a7,7,0,0,0,1.63.94l.38,2.65a.5.5,0,0,0,.5.42h3.44a.5.5,0,0,0,.5-.42l.38-2.65a7,7,0,0,0,1.63-.94l2.49,1a.5.5,0,0,0,.6-.22l2-3.46a.5.5,0,0,0,.12-.61ZM12,15.5A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z"/></svg>`;
+}
+
+function iconLog() {
+  return `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z"/></svg>`;
+}
+
+function toggleDebugLog() {
+  if (debugLogOpen) {
+    closeDebugLog();
+  } else {
+    openDebugLog();
+  }
+}
+
+function openDebugLog() {
+  debugLogOpen = true;
+  const debugOverlay = document.createElement('div');
+  debugOverlay.className = 'cc-debug-overlay';
+  debugOverlay.id = 'cc-debug-overlay';
+  
+  debugOverlay.innerHTML = `
+    <div class="cc-debug-modal">
+      <div class="cc-header">
+        <div class="cc-title">调试日志 - Debug Log</div>
+        <div class="cc-actions">
+          <button class="cc-icon" id="cc-debug-close" title="关闭" aria-label="关闭">${iconClose()}</button>
+        </div>
+      </div>
+      <div class="cc-debug-tabs">
+        <div class="cc-debug-tab active" data-tab="subtitles">字幕内容</div>
+        <div class="cc-debug-tab" data-tab="llm1">LLM1响应</div>
+        <div class="cc-debug-tab" data-tab="llm2">LLM2响应</div>
+      </div>
+      <div class="cc-debug-content" id="cc-debug-content">
+        ${renderDebugContent('subtitles')}
+      </div>
+    </div>
+  `;
+  
+  uiRoot.appendChild(debugOverlay);
+  
+  debugOverlay.querySelector('#cc-debug-close').addEventListener('click', closeDebugLog);
+  
+  // Tab switching
+  debugOverlay.querySelectorAll('.cc-debug-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const tabName = tab.getAttribute('data-tab');
+      debugOverlay.querySelectorAll('.cc-debug-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      debugOverlay.querySelector('#cc-debug-content').innerHTML = renderDebugContent(tabName);
+    });
+  });
+}
+
+function closeDebugLog() {
+  debugLogOpen = false;
+  const debugOverlay = document.getElementById('cc-debug-overlay');
+  if (debugOverlay) {
+    debugOverlay.remove();
+  }
+}
+
+function renderDebugContent(tabName) {
+  switch (tabName) {
+    case 'subtitles':
+      return `
+        <div>
+          <h3>字幕提取结果</h3>
+          <div class="cc-small">长度: ${debugLog.subtitlesText ? debugLog.subtitlesText.length : 0} 字符</div>
+          <div class="cc-debug-pre">${escapeHtml(debugLog.subtitlesText || '暂无数据')}</div>
+        </div>
+      `;
+    case 'llm1':
+      return `
+        <div>
+          <h3>LLM1 处理结果 (词汇提取)</h3>
+          <div class="cc-small">候选词汇数量: ${debugLog.llm1Response?.items?.length || 0}</div>
+          <div class="cc-debug-pre">${escapeHtml(debugLog.llm1Response ? JSON.stringify(debugLog.llm1Response, null, 2) : '暂无数据')}</div>
+        </div>
+      `;
+    case 'llm2':
+      return `
+        <div>
+          <h3>LLM2 处理结果 (卡片生成)</h3>
+          <div class="cc-small">生成卡片数量: ${debugLog.llm2Response?.cards?.length || 0}</div>
+          <div class="cc-debug-pre">${escapeHtml(debugLog.llm2Response ? JSON.stringify(debugLog.llm2Response, null, 2) : '暂无数据')}</div>
+        </div>
+      `;
+    default:
+      return '<div>暂无数据</div>';
+  }
 }
 
 async function bootFlow() {
@@ -134,6 +242,14 @@ async function bootFlow() {
     currentState.candidates = saved.candidates || null;
     currentState.selected = saved.selected || null;
     currentState.cards = saved.cards || null;
+    // Debug log: 从缓存加载数据
+    debugLog.subtitlesText = saved.subtitlesText || null;
+    if (saved.candidates) {
+      debugLog.llm1Response = { items: saved.candidates };
+    }
+    if (saved.cards) {
+      debugLog.llm2Response = { cards: saved.cards };
+    }
     renderLearnView();
     setStep(['Extract captions', 'Filter words', 'Build cards'], 3);
     return;
@@ -154,6 +270,14 @@ async function startFlow(forceRegenerate = false) {
       const saved = await loadVideoData(videoId);
       if (saved && saved.cards?.length) {
         currentState = { ...currentState, ...saved };
+        // Debug log: 从缓存加载数据
+        debugLog.subtitlesText = saved.subtitlesText || null;
+        if (saved.candidates) {
+          debugLog.llm1Response = { items: saved.candidates };
+        }
+        if (saved.cards) {
+          debugLog.llm2Response = { cards: saved.cards };
+        }
         renderLearnView();
         setStep(['Extract captions', 'Filter words', 'Build cards'], 3);
         return;
@@ -161,6 +285,8 @@ async function startFlow(forceRegenerate = false) {
     }
     const subtitlesText = await extractCaptionsText();
     currentState.subtitlesText = subtitlesText;
+    // Debug log: 记录字幕内容
+    debugLog.subtitlesText = subtitlesText;
     await saveVideoData(currentState.videoId, { subtitlesText, title });
   } catch (e) {
     currentState.error = String(e?.message || e);
@@ -174,6 +300,8 @@ async function startFlow(forceRegenerate = false) {
   try {
     const resp = await llmCall('first', { subtitlesText: currentState.subtitlesText, maxItems: 60 });
     currentState.candidates = resp.items || [];
+    // Debug log: 记录LLM1响应
+    debugLog.llm1Response = resp;
     await saveVideoData(currentState.videoId, { candidates: currentState.candidates });
   } catch (e) {
     currentState.error = String(e?.message || e);
@@ -242,6 +370,8 @@ async function buildCards() {
   try {
     const resp = await llmCall('second', { selected: currentState.selected });
     currentState.cards = resp.cards || [];
+    // Debug log: 记录LLM2响应
+    debugLog.llm2Response = resp;
     await saveVideoData(currentState.videoId, { cards: currentState.cards });
     renderLearnView();
   } catch (e) {
@@ -331,6 +461,12 @@ async function deleteAllForThisVideo() {
   if (!currentState.videoId) return;
   await saveVideoData(currentState.videoId, { subtitlesText: null, candidates: null, selected: null, cards: null, title: currentState.title });
   currentState = { ...currentState, subtitlesText: null, candidates: null, selected: null, cards: null };
+  // Debug log: 清空调试数据
+  debugLog = {
+    subtitlesText: null,
+    llm1Response: null,
+    llm2Response: null,
+  };
   startFlow(true);
 }
 
