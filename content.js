@@ -496,30 +496,10 @@ async function tryTranscriptViaPage(videoId) {
 async function extractCaptionsText() {
   console.log('[CC] Starting caption extraction...');
 
-  // NEW: Try background InnerTube-first fetch via extension privileges
-  try {
-    const { videoId } = getYouTubeVideoInfo();
-    if (!videoId) throw new Error('no video id');
-    const resp = await chrome.runtime.sendMessage({ type: 'CC_GET_SUBTITLES', videoID: videoId, lang: 'en' });
-    if (resp && resp.ok && Array.isArray(resp.subtitles) && resp.subtitles.length) {
-      const text = resp.subtitles.map(s => s.text).join('\n').trim();
-      if (text) {
-        console.log('[CC] Got subtitles via background InnerTube path, length:', text.length);
-        return text;
-      }
-    } else if (resp && !resp.ok) {
-      console.log('[CC] Background fetch returned error, will fallback:', resp.error);
-    } else {
-      console.log('[CC] Background fetch returned empty, will fallback');
-    }
-  } catch (e) {
-    console.log('[CC] Background fetch attempt failed, will fallback:', e && e.message || e);
-  }
-
   // Ensure our page injector is ready for all page-context fetches
   await ensureInjectorLoaded();
 
-  // NEW: Try page-context InnerTube transcript API via injected proxy
+  // Try page-context InnerTube transcript API via injected proxy first
   try {
     const { videoId } = getYouTubeVideoInfo();
     if (videoId) {
@@ -532,8 +512,8 @@ async function extractCaptionsText() {
   } catch (e) {
     console.log('[CC] Page InnerTube path failed:', e && e.message || e);
   }
-
-  // Try robust main-world player response first
+  
+  // Then try robust main-world player response + direct track fetch
   try {
     console.log('[CC] Attempting to get player response from main world...');
     const injected = await getPlayerResponseMainWorld();
