@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "CaptionCards",
+  "version": "0.1.0",
+  "description": "Extract YouTube captions, filter key words/phrases with LLM, and generate study cards.",
+  "action": {
+    "default_title": "CaptionCards"
+  },
+  "permissions": [
+    "storage",
+    "scripting",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "https://*.youtube.com/*",
+    "https://*.googlevideo.com/*",
+    "https://api.openai.com/*",
+    "https://api.anthropic.com/*",
+    "https://openrouter.ai/*",
+    "https://openrouter.ai/api/*",
+    "https://generativelanguage.googleapis.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "options_page": "options/index.html",
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["page_inject.js", "assets/*"],
+      "matches": ["https://www.youtube.com/*"]
+    }
+  ]
+}

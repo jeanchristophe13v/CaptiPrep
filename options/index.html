@@ -1,0 +1,57 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CaptionCards Settings</title>
+  <style>
+    body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; background:#fff; color:#000; }
+    .wrap { max-width: 820px; margin: 24px auto; padding: 16px; border:3px solid #000; box-shadow: 8px 8px #000; }
+    h1 { margin: 0 0 16px 0; }
+    .row { display:flex; gap:12px; align-items:center; margin:8px 0; }
+    label { width: 160px; font-weight: 700; }
+    input, select { border:2px solid #000; padding:6px 8px; width: 100%; }
+    .btn { background:#000; color:#fff; border:2px solid #000; padding:8px 12px; cursor:pointer; }
+    .hint { color:#333; font-size:12px; }
+  </style>
+  <script defer src="options.js"></script>
+  </head>
+<body>
+  <div class="wrap">
+    <h1>CaptionCards Settings</h1>
+    <div class="row">
+      <label>Provider</label>
+      <select id="provider">
+        <option value="gemini">Google Gemini</option>
+        <option value="openai">OpenAI</option>
+        <option value="anthropic">Anthropic Claude</option>
+        <option value="openrouter">OpenRouter</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>Base URL (optional)</label>
+      <input id="baseUrl" placeholder="auto by provider" />
+    </div>
+    <div class="row">
+      <label>Model</label>
+      <input id="model" placeholder="e.g. gemini-2.5-flash" />
+    </div>
+    <div class="row">
+      <label>API Key</label>
+      <input id="apiKey" placeholder="paste your key" />
+    </div>
+    <div class="row">
+      <label>Accent</label>
+      <select id="accent">
+        <option value="us">American</option>
+        <option value="uk">British</option>
+      </select>
+    </div>
+    <div class="row">
+      <button class="btn" id="save">Save</button>
+      <button class="btn" id="test">Test</button>
+      <div class="hint" id="status"></div>
+    </div>
+  </div>
+</body>
+</html>
