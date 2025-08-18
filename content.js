@@ -387,6 +387,7 @@ function ytApiPostMainWorld(endpoint, payload, opts = {}) {
     const id = 'yt_' + Math.random().toString(36).slice(2);
     const onMsg = (event) => {
       if (event.source !== window) return;
+      if (event.origin !== location.origin) return;
       const d = event.data;
       if (!d || d.type !== 'CC_YT_API_RESULT' || d.id !== id) return;
       window.removeEventListener('message', onMsg);
@@ -394,7 +395,7 @@ function ytApiPostMainWorld(endpoint, payload, opts = {}) {
     };
     window.addEventListener('message', onMsg);
     try {
-      window.postMessage({ type: 'CC_YT_API', id, endpoint, payload, apiKey: opts.apiKey, clientVersion: opts.clientVersion }, '*');
+      window.postMessage({ type: 'CC_YT_API', id, endpoint, payload, apiKey: opts.apiKey, clientVersion: opts.clientVersion }, location.origin);
     } catch (e) {
       window.removeEventListener('message', onMsg);
       resolve({ ok: false, status: 0, contentType: '', json: null, text: '', error: String(e) });
@@ -407,7 +408,7 @@ function ytApiPostMainWorld(endpoint, payload, opts = {}) {
 }
 
 function generateVisitorDataLite() {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_' ;
   let result = '';
   for (let i = 0; i < 11; i++) result += chars.charAt(Math.floor(Math.random() * chars.length));
   return result;
@@ -680,6 +681,7 @@ function fetchCaptionMainWorld(url) {
     const id = 'f_' + Math.random().toString(36).slice(2);
     const onMsg = (event) => {
       if (event.source !== window) return;
+      if (event.origin !== location.origin) return;
       const d = event.data;
       if (!d || d.type !== 'CC_FETCH_CAPTION_RESULT' || d.id !== id) return;
       window.removeEventListener('message', onMsg);
@@ -687,7 +689,7 @@ function fetchCaptionMainWorld(url) {
     };
     window.addEventListener('message', onMsg);
     // Ensure injector is present (getPlayerResponseMainWorld injects it when called earlier)
-    try { window.postMessage({ type: 'CC_FETCH_CAPTION', id, url }, '*'); } catch (e) {
+    try { window.postMessage({ type: 'CC_FETCH_CAPTION', id, url }, location.origin); } catch (e) {
       window.removeEventListener('message', onMsg);
       resolve({ ok: false, status: 0, contentType: '', text: '', error: String(e) });
     }
@@ -746,6 +748,7 @@ function getPlayerResponseMainWorld() {
   return new Promise((resolve) => {
     const onMsg = (event) => {
       if (event.source !== window) return;
+      if (event.origin !== location.origin) return;
       const d = event.data;
       if (!d || d.type !== 'CC_PLAYER_RESPONSE') return;
       window.removeEventListener('message', onMsg);
