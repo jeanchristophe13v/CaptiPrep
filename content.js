@@ -113,7 +113,7 @@ function iconClose() {
   return `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M18.3 5.71a1 1 0 0 0-1.41 0L12 10.59 7.11 5.7A1 1 0 0 0 5.7 7.11L10.59 12l-4.9 4.89a1 1 0 1 0 1.41 1.41L12 13.41l4.89 4.9a1 1 0 0 0 1.41-1.41L13.41 12l4.9-4.89a1 1 0 0 0-.01-1.4z"/></svg>`;
 }
 function iconSettings() {
-  return `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M19.14,12.94a7.43,7.43,0,0,0,.05-.94,7.43,7.43,0,0,0-.05-.94l2.11-1.65a.48.48,0,0,0,.12-.61l-2-3.46a.5.5,0,0,0-.6-.22l-2.49,1a7,7,0,0,0-1.63-.94l-.38-2.65A.5.5,0,0,0,13.72,2H10.28a.5.5,0,0,0-.5.42L9.4,5.07a7,7,0,0,0-1.63.94l-2.49-1a.5.5,0,0,0-.6.22l-2,3.46a.5.5,0,0,0,.12.61L5,11.06a7.43,7.43,0,0,0-.05.94,7.43,7.43,0,0,0,.05.94L2.86,14.59a.48.48,0,0,0-.12.61l2,3.46a.5.5,0,0,0,.6.22l2.49-1a7,7,0,0,0,1.63.94l.38,2.65a.5.5,0,0,0,.5.42h3.44a.5.5,0,0,0,.5-.42l.38-2.65a7,7,0,0,0,1.63-.94l2.49,1a.5.5,0,0,0,.6-.22l2-3.46a.5.5,0,0,0-.12-.61ZM12,15.5A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z"/></svg>`;
+  return `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M19.14,12.94a7.43,7.43,0,0,0,.05-.94,7.43,7.43,0,0,0-.05-.94l2.11-1.65a.48.48,0,0,0,.12-.61l-2-3.46a.5.5,0,0,0-.6-.22l-2.49,1a7,7,0,0,0-1.63-.94l-.38-2.65A.5.5,0,0,0,13.72,2H10.28a.5.5,0,0,0-.5.42L9.4,5.07a7,7,0,0,0-1.63.94l-2.49-1a.5.5,0,0,0-.6.22l-2,3.46a.5.5,0,0,0,.12.61L5,11.06a7.43,7.43,0,0,0-.05.94,7.43,7.43,0,0,0,.05.94L2.86,14.59a.48.48,0,0,0-.12.61l2,3.46a.5.5,0,0,0,.6.22l2.49-1a7,7,0,0,0,1.63.94l.38,2.65a.5.5,0,0,0,.5.42h3.44a.5.5,0,0,0,.5-.42l.38-2.65a7,7,0,0,0,1.63-.94l2.49,1a.5.5,0,0,0,.6-.22l2-3.46a.5.5,0,0,0,.12-.61ZM12,15.5A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z"/></svg>`;
 }
 
 async function bootFlow() {
@@ -473,6 +473,58 @@ function transcriptSegmentsToLines(transcriptData) {
   return lines;
 }
 
+// ===== Quality improvements: logging + URL helpers =====
+const CC_DEBUG = false; // Flip to true locally to see detailed logs
+function dlog(...args) { if (CC_DEBUG) console.log(...args); }
+
+function appendParam(url, key, value) {
+  try {
+    const u = new URL(url);
+    if (!u.searchParams.has(key)) u.searchParams.append(key, value);
+    return u.toString();
+  } catch {
+    const sep = url.includes('?') ? '&' : '?';
+    if (url.includes(`${key}=`)) return url;
+    return `${url}${sep}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+  }
+}
+
+function buildUrlWithFmt(base, fmt) {
+  if (!base) return '';
+  return appendParam(base, 'fmt', fmt);
+}
+
+function isJsonLike(ct) {
+  const c = (ct || '').toLowerCase();
+  return c.includes('application/json') || c.includes('+json');
+}
+
+function safeJsonParse(text) {
+  try { return JSON.parse(text); } catch { return null; }
+}
+
+async function fetchAndExtract(url) {
+  const res = await fetchCaptionMainWorld(url);
+  dlog('[CC] fetchAndExtract:', url, 'status:', res.status, 'ct:', res.contentType);
+  if (!res.ok) return '';
+  const ct = res.contentType || '';
+  if (isJsonLike(ct)) {
+    const data = safeJsonParse(res.text || '');
+    const text = data ? captionsJsonToText(data) : '';
+    return text || '';
+  } else {
+    const raw = res.text || '';
+    const data = safeJsonParse(raw);
+    if (data) {
+      const text = captionsJsonToText(data);
+      return text || '';
+    }
+    const vttText = captionsVttToText(raw);
+    return vttText || '';
+  }
+}
+// ===== End quality helpers =====
+
 async function tryTranscriptViaPage(videoId) {
   try {
     await ensureInjectorLoaded();
@@ -494,7 +546,7 @@ async function tryTranscriptViaPage(videoId) {
 }
 
 async function extractCaptionsText() {
-  console.log('[CC] Starting caption extraction...');
+  dlog('[CC] Starting caption extraction...');
 
   // Ensure our page injector is ready for all page-context fetches
   await ensureInjectorLoaded();
@@ -505,158 +557,96 @@ async function extractCaptionsText() {
     if (videoId) {
       const txt = await tryTranscriptViaPage(videoId);
       if (txt && txt.trim()) {
-        console.log('[CC] Got transcript via page InnerTube path, length:', txt.length);
+        dlog('[CC] Got transcript via page InnerTube path, length:', txt.length);
         return txt;
       }
     }
   } catch (e) {
-    console.log('[CC] Page InnerTube path failed:', e && e.message || e);
+    dlog('[CC] Page InnerTube path failed:', (e && e.message) || e);
   }
   
   // Then try robust main-world player response + direct track fetch
   try {
-    console.log('[CC] Attempting to get player response from main world...');
+    dlog('[CC] Attempting to get player response from main world...');
     const injected = await getPlayerResponseMainWorld();
-    console.log('[CC] Player response received:', !!injected, injected ? Object.keys(injected) : 'null');
+    dlog('[CC] Player response received:', !!injected, injected ? Object.keys(injected) : 'null');
     
     let tracks = injected?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
-    console.log('[CC] Caption tracks found:', tracks.length, tracks.map(t => ({ lang: t.languageCode, kind: t.kind })));
+    dlog('[CC] Caption tracks found:', tracks.length, tracks.map(t => ({ lang: t.languageCode, kind: t.kind })));
     
     const isEnglish = (t) => (t.languageCode || '').toLowerCase().startsWith('en');
     const nonAsr = tracks.filter(t => isEnglish(t) && !t.kind);
     const asr = tracks.filter(t => isEnglish(t) && t.kind === 'asr');
     const pick = nonAsr[0] || asr[0];
     
-    console.log('[CC] Filtered tracks - nonAsr:', nonAsr.length, 'asr:', asr.length, 'picked:', !!pick);
+    dlog('[CC] Filtered tracks - nonAsr:', nonAsr.length, 'asr:', asr.length, 'picked:', !!pick);
     
     if (pick && pick.baseUrl) {
-      console.log('[CC] Using baseUrl:', pick.baseUrl);
-      // Prefer srv3(JSON) first, fallback to vtt
+      dlog('[CC] Using baseUrl:', pick.baseUrl);
       const base = pick.baseUrl;
-      // Prefer json3 (current) and keep srv3 as a backup
-      const json3Url = base + (base.includes('fmt=') ? '' : (base.includes('?') ? '&' : '?') + 'fmt=json3');
-      const srv3Url = base + (base.includes('fmt=') ? '' : (base.includes('?') ? '&' : '?') + 'fmt=srv3');
-      // Try JSON first (via main-world fetch proxy)
+      const json3Url = buildUrlWithFmt(base, 'json3');
+      const srv3Url = buildUrlWithFmt(base, 'srv3');
+
+      // Try json3 first
       try {
-        console.log('[CC] Trying JSON format (json3):', json3Url);
-        let res = await fetchCaptionMainWorld(json3Url);
-        const ct = res.contentType || '';
-        console.log('[CC] JSON response status:', res.status, 'content-type:', ct);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        if (ct.includes('application/json') || ct.includes('+json')) {
-          const data = JSON.parse(res.text || 'null');
-          const text = captionsJsonToText(data);
-          console.log('[CC] JSON parsed, text length:', text.length);
-          if (text.trim()) return text;
-        } else {
-          // Some servers still return JSON with text/plain
-          const raw = res.text || '';
-          console.log('[CC] Got raw text, length:', raw.length, 'first 100 chars:', raw.substring(0, 100));
-          try {
-            const data = JSON.parse(raw);
-            const text = captionsJsonToText(data);
-            console.log('[CC] Raw text parsed as JSON, text length:', text.length);
-            if (text.trim()) return text;
-          } catch {
-            // Not JSON, fallthrough to VTT
-            console.log('[CC] Raw text is not JSON, trying as VTT...');
-            const text = captionsVttToText(raw);
-            if (text.trim()) return text;
-          }
-        }
+        const text = await fetchAndExtract(json3Url);
+        dlog('[CC] json3 extracted length:', text.length);
+        if (text.trim()) return text;
       } catch (e) {
-        console.log('[CC] JSON (json3) format failed:', e.message);
-        // Try legacy srv3 before VTT
-        try {
-          console.log('[CC] Trying legacy JSON format (srv3):', srv3Url);
-          const res2 = await fetchCaptionMainWorld(srv3Url);
-          const ct2 = res2.contentType || '';
-          console.log('[CC] srv3 response status:', res2.status, 'content-type:', ct2);
-          if (res2.ok) {
-            if (ct2.includes('application/json') || ct2.includes('+json')) {
-              const data2 = JSON.parse(res2.text || 'null');
-              const text2 = captionsJsonToText(data2);
-              console.log('[CC] srv3 JSON parsed, text length:', text2.length);
-              if (text2.trim()) return text2;
-            } else {
-              const raw2 = res2.text || '';
-              try {
-                const data2 = JSON.parse(raw2);
-                const text2 = captionsJsonToText(data2);
-                if (text2.trim()) return text2;
-              } catch {}
-            }
-          }
-        } catch (e2) {
-          console.log('[CC] srv3 also failed:', e2.message);
-        }
-        // continue to VTT
+        dlog('[CC] json3 fetchAndExtract failed:', e?.message || e);
       }
+
+      // Try legacy srv3
+      try {
+        const text = await fetchAndExtract(srv3Url);
+        dlog('[CC] srv3 extracted length:', text.length);
+        if (text.trim()) return text;
+      } catch (e) {
+        dlog('[CC] srv3 fetchAndExtract failed:', e?.message || e);
+      }
+
       // VTT fallback
       try {
-        const vttUrl = base + (base.includes('fmt=') ? '' : (base.includes('?') ? '&' : '?') + 'fmt=vtt');
-        console.log('[CC] Trying VTT format:', vttUrl);
-        const vttRes = await fetchCaptionMainWorld(vttUrl);
-        console.log('[CC] VTT response status:', vttRes.status);
-        if (vttRes.ok) {
-          const vttText = vttRes.text || '';
-          console.log('[CC] VTT text length:', vttText.length);
-          const text = captionsVttToText(vttText);
-          console.log('[CC] VTT parsed text length:', text.length);
-          if (text.trim()) return text;
-        }
+        const vttUrl = buildUrlWithFmt(base, 'vtt');
+        const text = await fetchAndExtract(vttUrl);
+        dlog('[CC] vtt extracted length:', text.length);
+        if (text.trim()) return text;
       } catch (e) {
-        console.log('[CC] VTT format failed:', e.message);
+        dlog('[CC] vtt fetchAndExtract failed:', e?.message || e);
       }
     }
 
     // No direct English track; try translating available tracks to English via tlang=en
     if (!pick && tracks.length) {
-      console.log('[CC] No English track; attempting translation via tlang=en');
+      dlog('[CC] No English track; attempting translation via tlang=en');
       for (const t of tracks) {
         if (!t.baseUrl) continue;
-        const base = t.baseUrl + (t.baseUrl.includes('?') ? '&' : '?') + 'tlang=en';
-        const json3Url = base + (base.includes('fmt=') ? '' : '&fmt=json3');
-        const vttUrl = base + (base.includes('fmt=') ? '' : '&fmt=vtt');
+        const baseT = appendParam(t.baseUrl, 'tlang', 'en');
+        const json3Url = buildUrlWithFmt(baseT, 'json3');
+        const vttUrl = buildUrlWithFmt(baseT, 'vtt');
         try {
-          console.log('[CC] Trying translated JSON (json3):', json3Url);
-          const res = await fetchCaptionMainWorld(json3Url);
-          if (res.ok) {
-            const ct = res.contentType || '';
-            if (ct.includes('application/json') || ct.includes('+json')) {
-              const data = JSON.parse(res.text || 'null');
-              const text = captionsJsonToText(data);
-              if (text.trim()) return text;
-            } else {
-              const raw = res.text || '';
-              try { const data = JSON.parse(raw); const text = captionsJsonToText(data); if (text.trim()) return text; } catch {}
-            }
-          }
+          const text = await fetchAndExtract(json3Url);
+          if (text.trim()) return text;
         } catch (e) {
-          console.log('[CC] Translated JSON failed:', e.message);
+          dlog('[CC] Translated json3 failed:', e?.message || e);
         }
         try {
-          console.log('[CC] Trying translated VTT:', vttUrl);
-          const res2 = await fetchCaptionMainWorld(vttUrl);
-          if (res2.ok) {
-            const vttText = res2.text || '';
-            const text = captionsVttToText(vttText);
-            if (text.trim()) return text;
-          }
+          const text2 = await fetchAndExtract(vttUrl);
+          if (text2.trim()) return text2;
         } catch (e2) {
-          console.log('[CC] Translated VTT failed:', e2.message);
+          dlog('[CC] Translated vtt failed:', e2?.message || e2);
         }
       }
     }
   } catch (e) {
-    console.log('[CC] Player response method failed:', e.message);
+    dlog('[CC] Player response method failed:', e.message);
     // continue to fallback
   }
   
   // Fallback timedtext endpoints
-  console.log('[CC] Trying fallback timedtext endpoints...');
+  dlog('[CC] Trying fallback timedtext endpoints...');
   const { videoId } = getYouTubeVideoInfo();
-  console.log('[CC] Video ID:', videoId);
+  dlog('[CC] Video ID:', videoId);
   
   if (!videoId) {
     throw new Error('Could not determine video ID from current page');
@@ -667,7 +657,6 @@ async function extractCaptionsText() {
     `https://www.youtube.com/api/timedtext?lang=en&kind=asr&v=${encodeURIComponent(videoId)}&fmt=json3`,
     `https://www.youtube.com/api/timedtext?lang=en-US&v=${encodeURIComponent(videoId)}&fmt=json3`,
     `https://www.youtube.com/api/timedtext?lang=en-GB&v=${encodeURIComponent(videoId)}&fmt=json3`,
-    // allow automatic translation to English when only non-English tracks exist
     `https://www.youtube.com/api/timedtext?tlang=en&v=${encodeURIComponent(videoId)}&fmt=json3`,
     `https://www.youtube.com/api/timedtext?tlang=en&v=${encodeURIComponent(videoId)}&fmt=vtt`,
     `https://www.youtube.com/api/timedtext?lang=en&v=${encodeURIComponent(videoId)}&fmt=vtt`,
@@ -676,38 +665,15 @@ async function extractCaptionsText() {
   
   for (const url of tries) {
     try {
-      console.log('[CC] Trying fallback URL:', url);
-      const res = await fetchCaptionMainWorld(url);
-      console.log('[CC] Fallback response status:', res.status);
-      if (!res.ok) continue;
-      const ct = res.contentType || '';
-      console.log('[CC] Fallback content-type:', ct);
-      if (ct.includes('application/json') || ct.includes('+json')) {
-        const data = JSON.parse(res.text || 'null');
-        const text = captionsJsonToText(data);
-        console.log('[CC] Fallback JSON text length:', text.length);
-        if (text && text.trim()) return text;
-      } else {
-        // Try text -> JSON parse, else treat as VTT
-        const raw = res.text || '';
-        console.log('[CC] Fallback raw text length:', raw.length);
-        try {
-          const data = JSON.parse(raw);
-          const text = captionsJsonToText(data);
-          console.log('[CC] Fallback raw->JSON text length:', text.length);
-          if (text && text.trim()) return text;
-        } catch {
-          const text = captionsVttToText(raw);
-          console.log('[CC] Fallback raw->VTT text length:', text.length);
-          if (text && text.trim()) return text;
-        }
-      }
+      const text = await fetchAndExtract(url);
+      dlog('[CC] Fallback extracted length:', text.length, 'for', url);
+      if (text && text.trim()) return text;
     } catch (e) {
-      console.log('[CC] Fallback URL failed:', url, e.message);
+      dlog('[CC] Fallback URL failed:', url, e?.message || e);
     }
   }
   
-  console.log('[CC] All caption extraction methods failed');
+  dlog('[CC] All caption extraction methods failed');
   throw new Error('No available English captions for this video.');
 }
 
