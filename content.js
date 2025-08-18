@@ -414,19 +414,16 @@ function generateVisitorDataLite() {
 }
 
 function generateSessionDataLite() {
-  const visitorData = generateVisitorDataLite();
+  // Lean session: let page_inject.js fill clientVersion/visitorData from ytcfg/PR
   return {
     context: {
       client: {
         hl: 'en', gl: 'US',
         clientName: 'WEB',
-        clientVersion: '2.20250222.10.00',
-        visitorData,
       },
       user: { enableSafetyMode: false },
       request: { useSsl: true },
     },
-    visitorData,
   };
 }
 
