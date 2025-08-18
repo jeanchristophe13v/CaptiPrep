@@ -28,7 +28,7 @@
   "options_page": "options/index.html",
   "content_scripts": [
     {
-      "matches": ["https://www.youtube.com/*"],
+      "matches": ["https://*.youtube.com/*", "https://youtu.be/*"],
       "js": ["content.js"],
       "run_at": "document_idle"
     }
@@ -36,7 +36,7 @@
   "web_accessible_resources": [
     {
       "resources": ["page_inject.js", "assets/*"],
-      "matches": ["https://www.youtube.com/*"]
+      "matches": ["https://*.youtube.com/*", "https://youtu.be/*"]
     }
   ]
 }

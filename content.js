@@ -381,9 +381,158 @@ function getYouTubeVideoInfo() {
   return { videoId: v, title };
 }
 
+// InnerTube POST via page main-world proxy
+function ytApiPostMainWorld(endpoint, payload, opts = {}) {
+  return new Promise((resolve) => {
+    const id = 'yt_' + Math.random().toString(36).slice(2);
+    const onMsg = (event) => {
+      if (event.source !== window) return;
+      const d = event.data;
+      if (!d || d.type !== 'CC_YT_API_RESULT' || d.id !== id) return;
+      window.removeEventListener('message', onMsg);
+      resolve({ ok: !!d.ok, status: d.status || 0, contentType: d.contentType || '', json: d.json || null, text: d.text || '', error: d.error });
+    };
+    window.addEventListener('message', onMsg);
+    try {
+      window.postMessage({ type: 'CC_YT_API', id, endpoint, payload, apiKey: opts.apiKey, clientVersion: opts.clientVersion }, '*');
+    } catch (e) {
+      window.removeEventListener('message', onMsg);
+      resolve({ ok: false, status: 0, contentType: '', json: null, text: '', error: String(e) });
+    }
+    setTimeout(() => {
+      try { window.removeEventListener('message', onMsg); } catch {}
+      resolve({ ok: false, status: 0, contentType: '', json: null, text: '', error: 'timeout' });
+    }, 10000);
+  });
+}
+
+function generateVisitorDataLite() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  let result = '';
+  for (let i = 0; i < 11; i++) result += chars.charAt(Math.floor(Math.random() * chars.length));
+  return result;
+}
+
+function generateSessionDataLite() {
+  const visitorData = generateVisitorDataLite();
+  return {
+    context: {
+      client: {
+        hl: 'en', gl: 'US',
+        clientName: 'WEB',
+        clientVersion: '2.20250222.10.00',
+        visitorData,
+      },
+      user: { enableSafetyMode: false },
+      request: { useSsl: true },
+    },
+    visitorData,
+  };
+}
+
+function extractTranscriptTokenFromNext(nextData) {
+  const panels = nextData?.engagementPanels;
+  if (!Array.isArray(panels)) return null;
+  const panel = panels.find(p => p?.engagementPanelSectionListRenderer?.panelIdentifier === 'engagement-panel-searchable-transcript');
+  if (!panel) return null;
+  const content = panel.engagementPanelSectionListRenderer?.content;
+  let token = content?.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token
+    || content?.continuationItemRenderer?.continuationEndpoint?.getTranscriptEndpoint?.params;
+  if (!token && content?.sectionListRenderer?.contents?.[0]?.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token) {
+    token = content.sectionListRenderer.contents[0].continuationItemRenderer.continuationEndpoint.continuationCommand.token;
+  }
+  if (!token && content?.sectionListRenderer?.contents) {
+    for (const item of content.sectionListRenderer.contents) {
+      const menu = item?.transcriptRenderer?.footer?.transcriptFooterRenderer?.languageMenu?.sortFilterSubMenuRenderer?.subMenuItems;
+      if (Array.isArray(menu) && menu.length) {
+        const englishItem = menu.find(i => i?.title?.toLowerCase?.().includes('english') || i?.selected) || menu[0];
+        token = englishItem?.continuation?.reloadContinuationData?.continuation;
+        if (token) break;
+      }
+    }
+  }
+  return token || null;
+}
+
+function transcriptSegmentsToLines(transcriptData) {
+  const segments = transcriptData?.actions?.[0]?.updateEngagementPanelAction?.content?.transcriptRenderer?.content?.transcriptSearchPanelRenderer?.body?.transcriptSegmentListRenderer?.initialSegments;
+  if (!Array.isArray(segments)) return [];
+  const lines = [];
+  for (const seg of segments) {
+    const r = seg?.transcriptSegmentRenderer;
+    if (!r) continue;
+    let text = '';
+    if (r.snippet?.simpleText) text = r.snippet.simpleText;
+    else if (Array.isArray(r.snippet?.runs)) text = r.snippet.runs.map(x => x.text).join('');
+    else if (r.snippet?.text) text = r.snippet.text;
+    text = String(text).replace(/<[^>]*>/g, '').replace(/&amp;/g, '&');
+    text = text.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+    text = text.replace(/\s+/g, ' ').trim();
+    if (text) lines.push(text);
+  }
+  return lines;
+}
+
+async function tryTranscriptViaPage(videoId) {
+  try {
+    await ensureInjectorLoaded();
+    const session = generateSessionDataLite();
+    // Directly call /next to get engagement panels
+    const nextRes = await ytApiPostMainWorld('/next', { ...session, videoId });
+    if (!nextRes.ok) return '';
+    const nextData = nextRes.json || null;
+    const token = extractTranscriptTokenFromNext(nextData);
+    if (!token) return '';
+    const trRes = await ytApiPostMainWorld('/get_transcript', { ...session, params: token });
+    if (!trRes.ok) return '';
+    const lines = transcriptSegmentsToLines(trRes.json || {});
+    const text = lines.join('\n').trim();
+    return text || '';
+  } catch {
+    return '';
+  }
+}
+
 async function extractCaptionsText() {
   console.log('[CC] Starting caption extraction...');
-  
+
+  // NEW: Try background InnerTube-first fetch via extension privileges
+  try {
+    const { videoId } = getYouTubeVideoInfo();
+    if (!videoId) throw new Error('no video id');
+    const resp = await chrome.runtime.sendMessage({ type: 'CC_GET_SUBTITLES', videoID: videoId, lang: 'en' });
+    if (resp && resp.ok && Array.isArray(resp.subtitles) && resp.subtitles.length) {
+      const text = resp.subtitles.map(s => s.text).join('\n').trim();
+      if (text) {
+        console.log('[CC] Got subtitles via background InnerTube path, length:', text.length);
+        return text;
+      }
+    } else if (resp && !resp.ok) {
+      console.log('[CC] Background fetch returned error, will fallback:', resp.error);
+    } else {
+      console.log('[CC] Background fetch returned empty, will fallback');
+    }
+  } catch (e) {
+    console.log('[CC] Background fetch attempt failed, will fallback:', e && e.message || e);
+  }
+
+  // Ensure our page injector is ready for all page-context fetches
+  await ensureInjectorLoaded();
+
+  // NEW: Try page-context InnerTube transcript API via injected proxy
+  try {
+    const { videoId } = getYouTubeVideoInfo();
+    if (videoId) {
+      const txt = await tryTranscriptViaPage(videoId);
+      if (txt && txt.trim()) {
+        console.log('[CC] Got transcript via page InnerTube path, length:', txt.length);
+        return txt;
+      }
+    }
+  } catch (e) {
+    console.log('[CC] Page InnerTube path failed:', e && e.message || e);
+  }
+
   // Try robust main-world player response first
   try {
     console.log('[CC] Attempting to get player response from main world...');
@@ -700,4 +849,24 @@ function renderOnboarding() {
     }
     startFlow(true);
   });
+}
+
+let __cc_injectorReady = null;
+function ensureInjectorLoaded() {
+  if (__cc_injectorReady) return __cc_injectorReady;
+  __cc_injectorReady = new Promise((resolve) => {
+    try {
+      // If our injector already present (cheap heuristic), resolve fast
+      // We cannot directly detect from content, so just inject once; onload will fire only once
+      const s = document.createElement('script');
+      s.src = chrome.runtime.getURL('page_inject.js');
+      s.addEventListener('load', () => resolve(true));
+      (document.head || document.documentElement).appendChild(s);
+      // Fallback resolve to avoid hanging if onload suppressed
+      setTimeout(() => resolve(true), 300);
+    } catch {
+      resolve(true);
+    }
+  });
+  return __cc_injectorReady;
 }

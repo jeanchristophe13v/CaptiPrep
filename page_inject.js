@@ -53,14 +53,44 @@
   // Caption fetch proxy: allow content script to fetch via page context
   window.addEventListener('message', async (event) => {
     const d = event && event.data;
-    if (!d || d.type !== 'CC_FETCH_CAPTION' || !d.url || !d.id) return;
-    try {
-      const res = await fetch(d.url, { credentials: 'include' });
-      const ct = res.headers.get('content-type') || '';
-      const text = await res.text();
-      window.postMessage({ type: 'CC_FETCH_CAPTION_RESULT', id: d.id, ok: !!res.ok, status: res.status, contentType: ct, text }, '*');
-    } catch (e) {
-      try { window.postMessage({ type: 'CC_FETCH_CAPTION_RESULT', id: d.id, ok: false, status: 0, contentType: '', text: '', error: String(e) }, '*'); } catch {}
+    if (!d) return;
+
+    // Existing caption fetch (GET)
+    if (d.type === 'CC_FETCH_CAPTION' && d.url && d.id) {
+      try {
+        const res = await fetch(d.url, { credentials: 'include' });
+        const ct = res.headers.get('content-type') || '';
+        const text = await res.text();
+        window.postMessage({ type: 'CC_FETCH_CAPTION_RESULT', id: d.id, ok: !!res.ok, status: res.status, contentType: ct, text }, '*');
+      } catch (e) {
+        try { window.postMessage({ type: 'CC_FETCH_CAPTION_RESULT', id: d.id, ok: false, status: 0, contentType: '', text: '', error: String(e) }, '*'); } catch {}
+      }
+      return;
+    }
+
+    // NEW: InnerTube POST proxy (player/next/get_transcript)
+    if (d.type === 'CC_YT_API' && d.id && d.endpoint && d.payload) {
+      try {
+        const API_BASE = 'https://www.youtube.com/youtubei/v1';
+        const API_KEY = d.apiKey || 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
+        const url = `${API_BASE}${d.endpoint}?key=${API_KEY}`;
+        const headers = {
+          'Content-Type': 'application/json',
+          'Accept': '*/*',
+          'X-Youtube-Client-Name': '1',
+          'X-Youtube-Client-Version': (d.clientVersion || '2.20250222.10.00'),
+          // Optional but helpful; if provided from payload, pass through
+          ...(d.payload && d.payload.visitorData ? { 'X-Goog-Visitor-Id': d.payload.visitorData } : {}),
+        };
+        const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(d.payload), credentials: 'include' });
+        const ct = res.headers.get('content-type') || '';
+        const text = await res.text();
+        let json = null; try { json = JSON.parse(text); } catch {}
+        window.postMessage({ type: 'CC_YT_API_RESULT', id: d.id, ok: !!res.ok, status: res.status, contentType: ct, json, text }, '*');
+      } catch (e) {
+        try { window.postMessage({ type: 'CC_YT_API_RESULT', id: d.id, ok: false, status: 0, contentType: '', json: null, text: '', error: String(e) }, '*'); } catch {}
+      }
+      return;
     }
   });
 })();
