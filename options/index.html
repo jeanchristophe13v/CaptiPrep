@@ -40,7 +40,7 @@
 
     /* Accent choices */
     .choices { display:flex; gap:12px; align-items:center; }
-    .choice { display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border:2px solid #000; background:#fff; box-shadow: 2px 2px #000; cursor:pointer; }
+    .choice { display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border:2px solid #000; background:#fff; box-shadow: 2px 2px #000; cursor:pointer; white-space: nowrap; }
 
     /* Model input with suggestions */
     .model-line { display:grid; grid-template-columns: minmax(240px, 420px) max-content; align-items:center; gap:8px; width: 100%; }
@@ -92,10 +92,17 @@
           <input id="apiKey" placeholder="paste your key" />
         </div>
         <div class="row">
-          <label>Accent</label>
+          <label>音标（美式/英式）</label>
           <div class="choices">
             <label class="choice"><input type="radio" name="accent" value="us" /> American</label>
             <label class="choice"><input type="radio" name="accent" value="uk" /> British</label>
+          </div>
+        </div>
+        <div class="row">
+          <label>注释语言</label>
+          <div class="choices">
+            <label class="choice"><input type="radio" name="glossLang" value="en" /> English</label>
+            <label class="choice"><input type="radio" name="glossLang" value="zh" /> 中文</label>
           </div>
         </div>
       </div>

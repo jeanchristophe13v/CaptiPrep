@@ -5,7 +5,8 @@ const DEFAULTS = {
   model: 'gemini-2.5-flash',
   modelFirst: 'gemini-2.5-flash',
   modelSecond: 'gemini-2.5-flash',
-  accent: 'us'
+  accent: 'us',
+  glossLang: 'en'
 };
 
 let cachedModels = [];
@@ -26,6 +27,11 @@ async function load() {
   let set = false; radios.forEach(r => { if (r.value === (s.accent || 'us')) { r.checked = true; set = true; } });
   if (!set) { const us = document.querySelector('input[name="accent"][value="us"]'); if (us) us.checked = true; }
 
+  // GlossLang radios
+  const glossRadios = document.querySelectorAll('input[name="glossLang"]');
+  let gset = false; glossRadios.forEach(r => { if (r.value === (s.glossLang || 'en')) { r.checked = true; gset = true; } });
+  if (!gset) { const en = document.querySelector('input[name="glossLang"][value="en"]'); if (en) en.checked = true; }
+
   document.getElementById('modelFirst').value = s.modelFirst || '';
   document.getElementById('modelSecond').value = s.modelSecond || '';
 
@@ -35,6 +41,8 @@ async function load() {
 function getFormSettings() {
   const radios = document.querySelectorAll('input[name="accent"]:checked');
   const accent = radios.length ? radios[0].value : 'us';
+  const glossSel = document.querySelectorAll('input[name="glossLang"]:checked');
+  const glossLang = glossSel.length ? glossSel[0].value : 'en';
   return {
     provider: document.getElementById('provider').value,
     baseUrl: document.getElementById('baseUrl').value.trim(),
@@ -42,7 +50,8 @@ function getFormSettings() {
     modelFirst: document.getElementById('modelFirst').value.trim(),
     modelSecond: document.getElementById('modelSecond').value.trim(),
     apiKey: document.getElementById('apiKey').value.trim(),
-    accent
+    accent,
+    glossLang
   };
 }
 
@@ -72,6 +81,8 @@ function wireAutosave() {
   });
   // Accent radios
   document.querySelectorAll('input[name="accent"]').forEach(r => r.addEventListener('change', () => save(false)));
+  // GlossLang radios
+  document.querySelectorAll('input[name="glossLang"]').forEach(r => r.addEventListener('change', () => save(false)));
 }
 
 function flashStatus(msg) {

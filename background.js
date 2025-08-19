@@ -9,7 +9,9 @@ const DEFAULT_SETTINGS = {
   // New: allow different models per role (fallback to `model`)
   modelFirst: 'gemini-2.5-flash',
   modelSecond: 'gemini-2.5-flash',
-  accent: 'us' // 'us' or 'uk'
+  accent: 'us', // 'us' or 'uk'
+  // New: definition/notes language for cards ('en' | 'zh')
+  glossLang: 'en'
 };
 
 async function getSettings() {
@@ -125,10 +127,10 @@ async function handleLLMCall(payload) {
   const settings = await getSettings();
   const { role, data } = payload; // role: 'first'|'second'
 
-  const { provider, baseUrl, apiKey, accent } = settings;
+  const { provider, baseUrl, apiKey, accent, glossLang } = settings;
   if (!apiKey) throw new Error('Missing API key in settings');
 
-  const prompts = buildPrompts(role, data, accent);
+  const prompts = buildPrompts(role, data, { accent, glossLang });
 
   // Choose model per role with fallback
   const model = role === 'first'
@@ -151,7 +153,8 @@ async function handleLLMCall(payload) {
   return parsed;
 }
 
-function buildPrompts(role, data, accent) {
+function buildPrompts(role, data, opts) {
+  const { accent, glossLang } = (opts || {});
   if (role === 'first') {
     const { subtitlesText, maxItems = 60 } = data;
     const system = `You are an expert English vocabulary curator for learners with intermediate+ proficiency. Remove trivial or banal items.`;
@@ -173,18 +176,34 @@ Transcript (English, lightly noisy, do minimal normalization to understand):\n\n
   } else if (role === 'second') {
     const { selected } = data;
     const accentLabel = accent === 'uk' ? 'British' : 'American';
+    const glossLabel = glossLang === 'zh' ? 'Chinese' : 'English';
     const system = `You are a concise English lexicographer. Output clean IPA and succinct meanings.`;
-    const user = `Task: For each item, produce phonetic transcription (IPA, ${accentLabel}), part of speech, a short learner-friendly definition, 1-2 example sentences (prefer common, you may adapt from everyday usage), and a brief note for meme/culture/common confusions if relevant. Keep it compact.
+
+    // Example sentence rules: default English; if glossLang is Chinese, add a Chinese translation/example as well.
+    const exampleRule = (glossLang === 'zh')
+      ? `Provide exactly 2 example sentences per item in this order:
+  1) in English (natural, common)
+  2) in Chinese (concise, faithful to #1; do not add extra notes here)`
+      : `Provide 1–2 example sentences in English (natural, common).`;
+
+    const defRule = (glossLang === 'zh')
+      ? `Write the "definition" and "notes" in Chinese.`
+      : `Write the "definition" and "notes" in English.`;
+
+    const user = `Task: For each item, produce phonetic transcription (IPA, ${accentLabel}), part of speech (in English), a short learner-friendly definition, example sentence(s), and a brief note for meme/culture/common confusions if relevant. Keep it compact.
+
+${defRule}
+${exampleRule}
 
 Return JSON strictly with this shape:
 {
   "cards": [ {
     "term": string,
     "ipa": string,            // IPA (${accentLabel})
-    "pos": string,            // e.g., noun, verb, adj.
-    "definition": string,     // concise learner definition
-    "examples": string[],     // 1-2 examples
-    "notes": string           // may be empty
+    "pos": string,            // e.g., noun, verb, adj. (in English)
+    "definition": string,     // concise learner definition (${glossLabel})
+    "examples": string[],     // ${glossLang === 'zh' ? 'exactly 2: [English, Chinese]' : '1–2 English sentences'}
+    "notes": string           // may be empty (${glossLabel})
   } ]
 }
 
