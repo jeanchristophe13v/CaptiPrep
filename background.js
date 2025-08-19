@@ -6,6 +6,9 @@ const DEFAULT_SETTINGS = {
   baseUrl: '', // will derive by provider
   apiKey: '',
   model: 'gemini-2.5-flash',
+  // New: allow different models per role (fallback to `model`)
+  modelFirst: 'gemini-2.5-flash',
+  modelSecond: 'gemini-2.5-flash',
   accent: 'us' // 'us' or 'uk'
 };
 
@@ -81,9 +84,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       try {
         const override = msg.override || {};
         const settings = { ...(await getSettings()), ...override };
-        const { provider, baseUrl, apiKey, model } = settings;
+        const { provider, baseUrl, apiKey } = settings;
         if (!apiKey) throw new Error('API key missing');
-        const text = await callProvider({ provider, baseUrl, apiKey, model, prompt: 'Return this exact JSON: {"ok":true}' });
+        // Prefer modelFirst > model > modelSecond for test
+        const model = override.model || settings.modelFirst || settings.model || settings.modelSecond;
+        const text = await callProvider({ provider, baseUrl, apiKey, model, prompt: 'Return this exact JSON: {"ok":true}', temperature: 0, topP: 1 });
         let ok = false;
         try {
           const jsonStr = extractJson(text);
@@ -98,18 +103,43 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     })();
     return true;
   }
+  if (msg && msg.type === 'CC_LIST_MODELS') {
+    (async () => {
+      try {
+        const override = msg.override || {};
+        const s = await getSettings();
+        const provider = (override.provider || s.provider || '').toLowerCase();
+        const baseUrl = (override.baseUrl ?? s.baseUrl ?? '').trim();
+        const apiKey = (override.apiKey ?? s.apiKey ?? '').trim();
+        const list = await listModels({ provider, baseUrl, apiKey });
+        sendResponse({ ok: true, models: list });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e && e.message || e) });
+      }
+    })();
+    return true;
+  }
 });
 
 async function handleLLMCall(payload) {
   const settings = await getSettings();
   const { role, data } = payload; // role: 'first'|'second'
 
-  const { provider, baseUrl, apiKey, model, accent } = settings;
+  const { provider, baseUrl, apiKey, accent } = settings;
   if (!apiKey) throw new Error('Missing API key in settings');
 
   const prompts = buildPrompts(role, data, accent);
 
-  const text = await callProvider({ provider, baseUrl, apiKey, model, prompt: prompts.prompt });
+  // Choose model per role with fallback
+  const model = role === 'first'
+    ? (settings.modelFirst || settings.model)
+    : (settings.modelSecond || settings.model);
+
+  // Sampling per role
+  const temperature = role === 'first' ? 0 : 0.6;
+  const topP = 1;
+
+  const text = await callProvider({ provider, baseUrl, apiKey, model, prompt: prompts.prompt, temperature, topP });
   // Expect JSON in text; try to parse
   let parsed;
   try {
@@ -169,23 +199,28 @@ function composeChat(system, user) {
   return `SYSTEM:\n${system}\n\nUSER:\n${user}`;
 }
 
-async function callProvider({ provider, baseUrl, apiKey, model, prompt }) {
+async function callProvider({ provider, baseUrl, apiKey, model, prompt, temperature, topP }) {
   const p = provider.toLowerCase();
   if (p === 'gemini' || p === 'google') {
     const url = (baseUrl && baseUrl.trim()) || `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const body = {
+      contents: [ { role: 'user', parts: [ { text: prompt } ] } ],
+      generationConfig: {
+        temperature: typeof temperature === 'number' ? temperature : undefined,
+        topP: typeof topP === 'number' ? topP : undefined
+      }
+    };
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [ { role: 'user', parts: [ { text: prompt } ] } ]
-      })
+      body: JSON.stringify(body)
     });
     if (!res.ok) throw new Error(`Gemini error ${res.status}: ${await res.text()}`);
     const data = await res.json();
     const text = (data.candidates?.[0]?.content?.parts?.map(p => p.text).join('\n')) || '';
     return text;
   }
-  if (p === 'openai') {
+  if (p === 'openai' || p === 'openai-compatible') {
     const url = (baseUrl && baseUrl.trim()) || 'https://api.openai.com/v1/chat/completions';
     const res = await fetch(url, {
       method: 'POST',
@@ -198,7 +233,9 @@ async function callProvider({ provider, baseUrl, apiKey, model, prompt }) {
         messages: [
           { role: 'system', content: 'You are a helpful assistant.' },
           { role: 'user', content: prompt }
-        ]
+        ],
+        temperature: typeof temperature === 'number' ? temperature : undefined,
+        top_p: typeof topP === 'number' ? topP : undefined
       })
     });
     if (!res.ok) throw new Error(`OpenAI error ${res.status}: ${await res.text()}`);
@@ -217,6 +254,8 @@ async function callProvider({ provider, baseUrl, apiKey, model, prompt }) {
       body: JSON.stringify({
         model,
         max_tokens: 2048,
+        temperature: typeof temperature === 'number' ? temperature : undefined,
+        top_p: typeof topP === 'number' ? topP : undefined,
         messages: [ { role: 'user', content: prompt } ]
       })
     });
@@ -235,7 +274,9 @@ async function callProvider({ provider, baseUrl, apiKey, model, prompt }) {
       },
       body: JSON.stringify({
         model,
-        messages: [ { role: 'user', content: prompt } ]
+        messages: [ { role: 'user', content: prompt } ],
+        temperature: typeof temperature === 'number' ? temperature : undefined,
+        top_p: typeof topP === 'number' ? topP : undefined
       })
     });
     if (!res.ok) throw new Error(`OpenRouter error ${res.status}: ${await res.text()}`);
@@ -243,6 +284,48 @@ async function callProvider({ provider, baseUrl, apiKey, model, prompt }) {
     return data.choices?.[0]?.message?.content || '';
   }
   throw new Error('Unsupported provider: ' + provider);
+}
+
+async function listModels({ provider, baseUrl, apiKey }) {
+  const p = (provider || '').toLowerCase();
+  if (p === 'openai' || p === 'openai-compatible') {
+    const url = (baseUrl && baseUrl.trim()) || 'https://api.openai.com/v1/models';
+    const res = await fetch(url, { headers: { 'Authorization': `Bearer ${apiKey}` } });
+    if (!res.ok) throw new Error(`OpenAI list models error ${res.status}: ${await res.text()}`);
+    const data = await res.json();
+    const ids = (data.data || []).map(m => m.id).filter(Boolean);
+    return ids;
+  }
+  if (p === 'claude' || p === 'anthropic') {
+    const url = (baseUrl && baseUrl.trim()) || 'https://api.anthropic.com/v1/models';
+    const res = await fetch(url, { headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' } });
+    if (!res.ok) throw new Error(`Anthropic list models error ${res.status}: ${await res.text()}`);
+    const data = await res.json();
+    const ids = (data.data || []).map(m => m.id || m.name || m.slug).filter(Boolean);
+    return ids;
+  }
+  if (p === 'openrouter') {
+    const url = (baseUrl && baseUrl.trim()) || 'https://openrouter.ai/api/v1/models';
+    const headers = { };
+    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+    const res = await fetch(url, { headers });
+    if (!res.ok) throw new Error(`OpenRouter list models error ${res.status}: ${await res.text()}`);
+    const data = await res.json();
+    const ids = (data.data || []).map(m => m.id || m.name || m.slug).filter(Boolean);
+    return ids;
+  }
+  if (p === 'gemini' || p === 'google') {
+    const base = (baseUrl && baseUrl.trim()) || 'https://generativelanguage.googleapis.com/v1beta/models';
+    const url = apiKey ? `${base}?key=${encodeURIComponent(apiKey)}` : base;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Gemini list models error ${res.status}: ${await res.text()}`);
+    const data = await res.json();
+    const names = (data.models || []).map(m => m.name).filter(Boolean);
+    // Normalize: strip leading 'models/' to match generateContent path piece we expect
+    const ids = names.map(n => n.replace(/^models\//, ''));
+    return ids;
+  }
+  throw new Error('Unsupported provider for model listing: ' + provider);
 }
 
 function extractJson(text) {

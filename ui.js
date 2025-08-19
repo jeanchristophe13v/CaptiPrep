@@ -249,8 +249,11 @@ function updateBottomControls() {
   const ctr = uiRoot && uiRoot.querySelector('#cc-bottom-controls');
   const counter = uiRoot && uiRoot.querySelector('#cc-card-counter');
   if (!ctr || !counter) return;
+  // 仅在“Build cards”阶段（学习视图的大卡片渲染时）显示底部按钮
+  const content = uiRoot && uiRoot.querySelector('#cc-content');
+  const inBuildView = !!(content && content.querySelector('.cc-card.cc-large'));
   const hasCards = !!(currentState.cards && currentState.cards.length);
-  if (!hasCards || ccGridMode) {
+  if (!hasCards || ccGridMode || !inBuildView) {
     ctr.style.display = 'none';
     counter.style.display = 'none';
     return;

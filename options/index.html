@@ -5,53 +5,132 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>CaptiPrep Settings</title>
   <style>
-    body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; background:#fff; color:#000; }
-    .wrap { max-width: 820px; margin: 24px auto; padding: 16px; border:3px solid #000; box-shadow: 8px 8px #000; }
-    h1 { margin: 0 0 16px 0; }
-    .row { display:flex; gap:12px; align-items:center; margin:8px 0; }
-    label { width: 160px; font-weight: 700; }
-    input, select { border:2px solid #000; padding:6px 8px; width: 100%; }
-    .btn { background:#000; color:#fff; border:2px solid #000; padding:8px 12px; cursor:pointer; }
-    .hint { color:#333; font-size:12px; }
+    body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; background:#fff; color:#000; font-size: 15px; }
+    .wrap { max-width: 920px; margin: 28px auto; padding: 0 12px; }
+    h1 { margin: 0; font-size: 22px; }
+
+    .topbar { display:flex; align-items:center; justify-content:space-between; margin-bottom: 16px; }
+    .top-actions { display:flex; align-items:center; gap:12px; }
+    .status-badge { font-size:16px; color:#333; }
+
+    /* Card style aligned with content UI */
+    .card { border:3px solid #000; box-shadow: 8px 8px #000; background:#fff; margin: 18px 0; }
+    /* Slightly larger gap between consecutive cards (Provider & Auth → Models) */
+    .card + .card { margin-top: 26px; }
+    .card-hd { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:3px solid #000; background:#f5f5f5; }
+    .card-tt { font-weight: 900; letter-spacing: .4px; }
+    .card-bd { padding: 16px; }
+
+    .row { display:grid; grid-template-columns: 200px 1fr; gap:12px 14px; align-items:center; margin:10px 0; }
+    .row .full { grid-column: 1 / -1; }
+    label { font-weight: 800; }
+    input, select, button { border:2px solid #000; padding:8px 10px; font: inherit; box-sizing: border-box; }
+    input, select, .full-width { width: 100%; }
+    /* Shorter consistent control width */
+    .row input, .row select { max-width: 420px; }
+    /* Provider specific width (~1/6 of 560). Must override width:100% */
+    .w-1-3 { width: 33%; max-width: 140px; min-width: 96px; }
+
+    /* Buttons: white with black shadow (ref cc-btn-white) */
+    .btn-white { background:#fff; color:#000; border:2px solid #000; padding:8px 12px; cursor:pointer; box-shadow: 2px 2px #000; }
+    .btn-white:hover { transform: translate(-1px, -1px); box-shadow: 3px 3px #000; }
+    .btn-white:disabled { opacity:.6; cursor:not-allowed; }
+
+    .actions { display:flex; gap:12px; align-items:center; justify-content:flex-end; width:100%; }
+
+    /* Accent choices */
+    .choices { display:flex; gap:12px; align-items:center; }
+    .choice { display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border:2px solid #000; background:#fff; box-shadow: 2px 2px #000; cursor:pointer; }
+
+    /* Model input with suggestions */
+    .model-line { display:grid; grid-template-columns: minmax(240px, 420px) max-content; align-items:center; gap:8px; width: 100%; }
+    .model-line .btn-white { width:auto; justify-self:start; }
+    .model-field { position: relative; min-width: 0; }
+    .suggest { position:absolute; left:0; right:0; top: calc(100% + 6px); background:#fff; border:2px solid #000; box-shadow: 4px 4px #000; max-height: 280px; overflow:auto; z-index: 20; }
+    .suggest .item { padding:8px 10px; cursor:pointer; }
+    .suggest .item:hover, .suggest .item.active { background:#000; color:#fff; }
+
+    @media (max-width: 720px) {
+      .row { grid-template-columns: 1fr; }
+      .model-line { grid-template-columns: 1fr; }
+      .w-1-3 { width: 100%; max-width: 100%; }
+    }
   </style>
   <script defer src="options.js"></script>
   </head>
 <body>
   <div class="wrap">
-    <h1>CaptiPrep Settings</h1>
-    <div class="row">
-      <label>Provider</label>
-      <select id="provider">
-        <option value="gemini">Google Gemini</option>
-        <option value="openai">OpenAI</option>
-        <option value="anthropic">Anthropic Claude</option>
-        <option value="openrouter">OpenRouter</option>
-      </select>
+    <div class="topbar">
+      <h1>CaptiPrep Settings</h1>
+      <div class="top-actions">
+        <span class="status-badge" id="saveStatus"></span>
+        <button class="btn-white" id="save">Save</button>
+      </div>
     </div>
-    <div class="row">
-      <label>Base URL (optional)</label>
-      <input id="baseUrl" placeholder="auto by provider" />
-    </div>
-    <div class="row">
-      <label>Model</label>
-      <input id="model" placeholder="e.g. gemini-2.5-flash" />
-    </div>
-    <div class="row">
-      <label>API Key</label>
-      <input id="apiKey" placeholder="paste your key" />
-    </div>
-    <div class="row">
-      <label>Accent</label>
-      <select id="accent">
-        <option value="us">American</option>
-        <option value="uk">British</option>
-      </select>
-    </div>
-    <div class="row">
-      <button class="btn" id="save">Save</button>
-      <button class="btn" id="test">Test</button>
-      <div class="hint" id="status"></div>
-    </div>
+
+    <section class="card">
+      <div class="card-hd">
+        <div class="card-tt">Provider & Auth</div>
+      </div>
+      <div class="card-bd">
+        <div class="row">
+          <label for="provider">Provider</label>
+          <select id="provider" class="w-1-3">
+            <option value="gemini">Google Gemini</option>
+            <option value="openai">OpenAI</option>
+            <option value="anthropic">Anthropic Claude</option>
+            <option value="openrouter">OpenRouter</option>
+            <option value="openai-compatible">OpenAI Compatible</option>
+          </select>
+        </div>
+        <div class="row">
+          <label for="baseUrl">Base URL (optional)</label>
+          <input id="baseUrl" placeholder="auto by provider (e.g. https://api.openai.com/v1)" />
+        </div>
+        <div class="row">
+          <label for="apiKey">API Key</label>
+          <input id="apiKey" placeholder="paste your key" />
+        </div>
+        <div class="row">
+          <label>Accent</label>
+          <div class="choices">
+            <label class="choice"><input type="radio" name="accent" value="us" /> American</label>
+            <label class="choice"><input type="radio" name="accent" value="uk" /> British</label>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-hd">
+        <div class="card-tt">Models</div>
+        <div class="actions">
+          <button class="btn-white" id="fetchModels">Fetch models</button>
+        </div>
+      </div>
+      <div class="card-bd">
+        <div class="row">
+          <label for="modelFirst">词汇筛选（LLM #1）</label>
+          <div class="model-line">
+            <div class="model-field">
+              <input id="modelFirst" placeholder="Type or pick a model…" />
+              <div class="suggest" id="modelFirstSuggest" hidden></div>
+            </div>
+            <button class="btn-white" id="testFirst">Test</button>
+          </div>
+        </div>
+        <div class="row">
+          <label for="modelSecond">卡片制作（LLM #2）</label>
+          <div class="model-line">
+            <div class="model-field">
+              <input id="modelSecond" placeholder="Type or pick a model…" />
+              <div class="suggest" id="modelSecondSuggest" hidden></div>
+            </div>
+            <button class="btn-white" id="testSecond">Test</button>
+          </div>
+        </div>
+      </div>
+    </section>
   </div>
 </body>
 </html>

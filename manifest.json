@@ -19,7 +19,8 @@
     "https://api.anthropic.com/*",
     "https://openrouter.ai/*",
     "https://openrouter.ai/api/*",
-    "https://generativelanguage.googleapis.com/*"
+    "https://generativelanguage.googleapis.com/*",
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "background.js",
