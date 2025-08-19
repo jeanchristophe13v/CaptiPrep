@@ -29,7 +29,7 @@
   "content_scripts": [
     {
       "matches": ["https://*.youtube.com/*", "https://youtu.be/*"],
-      "js": ["content.js"],
+      "js": ["content.js", "ui.js"],
       "run_at": "document_idle"
     }
   ],

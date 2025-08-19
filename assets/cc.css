@@ -1,0 +1,107 @@
+/* CaptiPrep content UI styles */
+#cc-root { position: fixed; inset: 0; z-index: 2147483647; display:none; }
+.cc-overlay { position: absolute; inset:0; background: rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; }
+.cc-modal { position: relative; overflow: visible; width: min(960px, 96vw); height: min(680px, 92vh); background:#fff; color:#000; border:3px solid #000; box-shadow: 8px 8px #000; display:flex; flex-direction:column; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+.cc-header { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:3px solid #000; background: #f5f5f5; }
+.cc-title { font-weight: 800; letter-spacing: 1px; font-size:20px; }
+.cc-actions { display:flex; gap:12px; }
+/* 顶部图标：白底圆形 + 悬浮标签 */
+.cc-icon { position:relative; background:#fff; color:#000; border:2px solid #000; width:34px; height:34px; border-radius:50%; display:grid; place-items:center; cursor:pointer; box-shadow: 2px 2px #000; }
+.cc-icon:hover { transform: translate(-1px, -1px); box-shadow: 3px 3px #000; }
+.cc-icon::after { content: attr(aria-label); position:absolute; top:42px; left:50%; transform: translateX(-50%); background:#fff; color:#000; border:2px solid #000; padding:4px 8px; box-shadow: 2px 2px #000; white-space: nowrap; opacity:0; pointer-events:none; transition: opacity .12s ease-in-out; font-size:12px; }
+.cc-icon:hover::after, .cc-icon:focus-visible::after { opacity:1; }
+
+.cc-body { flex:1; overflow:auto; padding:12px 12px 84px; background: repeating-linear-gradient(45deg, #fafafa, #fafafa 2px, #f0f0f0 2px, #f0f0f0 4px); font-size:15px; }
+
+/* Steps: evenly distributed with arrows */
+.cc-progress { display:grid; grid-template-columns: 1fr auto 1fr auto 1fr; align-items:center; gap:12px; margin-bottom:12px; }
+.cc-stepchip { padding:8px 10px; border:2px solid #000; background:#fff; text-align:center; font-weight:700; }
+.cc-stepchip.active { background:#000; color:#fff; }
+.cc-stepchip.clickable { cursor: pointer; }
+.cc-step-arrow { display:grid; place-items:center; color:#000; opacity:0.8; }
+
+/* Cards & inputs */
+.cc-card { position: relative; border:2px solid #000; padding:40px 32px 40px; background:#fff; margin-bottom:12px; }
+.cc-card.cc-large { padding:48px 36px; max-height: calc(100% - 120px); overflow:auto; }
+/* 选择页卡片：去掉顶部内边距，避免 sticky 工具条上方出现缝隙 */
+.cc-card.cc-select { padding-top: 0; }
+.cc-small { color:#333; font-size:13px; }
+.cc-input { padding:8px 10px; border:2px solid #000; width: 100%; }
+
+/* 选择页顶部工具条（白底固定） */
+/* 抵消滚动容器 .cc-body 的 12px 顶部内边距，避免工具条上方露出列表 */
+.cc-toolbar { position: sticky; top: -12px; z-index: 3; background:#fff; border-bottom:2px solid #000; padding: calc(14px + 12px) 12px 14px; display:flex; align-items:center; justify-content:space-between; gap:12px; margin-left: -32px; margin-right: -32px; padding-left: 32px; padding-right: 32px; }
+.cc-toolbar-title { font-weight:800; }
+.cc-btn-white { background:#fff; color:#000; border:2px solid #000; padding:8px 12px; cursor:pointer; box-shadow: 2px 2px #000; }
+.cc-btn-white:hover { transform: translate(-1px, -1px); box-shadow: 3px 3px #000; }
+
+/* 选择列表更疏朗 - 整行可点击 */
+.cc-list { display:block; margin-top:12px; }
+.cc-cand-item { display:flex; gap:10px; align-items:flex-start; padding:10px 8px; cursor:pointer; }
+.cc-cand-item + .cc-cand-item { border-top:1px dashed #ddd; }
+
+/* Editor grid layout */
+.cc-editor { display:grid; grid-template-columns: 120px 1fr; gap:14px 18px; align-items:start; }
+.cc-editor label { font-weight:700; }
+.cc-editor textarea { min-height: 160px; resize: vertical; }
+.cc-editor .ex { min-height: 200px; }
+.cc-editor .notes { min-height: 140px; }
+
+/* View (Anki 风格更大更松) */
+.cc-view .term { font-size: 36px; font-weight: 900; letter-spacing:.5px; margin-bottom: 8px; }
+.cc-view .meta { margin-top:0; color:#111; font-size:16px; margin-bottom: 24px; }
+.cc-view .definition { margin-top:0; font-size:18px; line-height:1.7; }
+.cc-view .examples { margin-top:24px; font-size:16px; }
+.cc-view .examples li { margin-left: 20px; list-style: disc; }
+.cc-view .notes { margin-top:20px; color:#333; font-style: italic; font-size:14px; }
+
+/* Grid view */
+.cc-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:12px; }
+
+/* 进度卡片（原样式保留以兼容老逻辑，但不再用于新加载方式） */
+.cc-loading { min-height: 160px; display:flex; align-items:center; }
+
+/* Card bottom floating controls（旧版，保留不再使用） */
+.cc-card-controls { position:absolute; left:50%; bottom:16px; transform: translateX(-50%); display:flex; gap:12px; align-items:center; }
+.cc-mini-btn { position:relative; width:46px; height:46px; border-radius:50%; background:#fff; color:#000; border:3px solid #000; display:grid; place-items:center; cursor:pointer; box-shadow: 3px 3px #000; }
+.cc-mini-btn:disabled { opacity: .45; cursor: not-allowed; }
+.cc-mini-btn:hover:not(:disabled) { transform: translate(-1px, -1px); box-shadow: 5px 5px #000; }
+.cc-mini-btn::after { content: attr(aria-label); position:absolute; bottom:54px; left:50%; transform: translateX(-50%); background:#fff; color:#000; border:2px solid #000; padding:4px 8px; box-shadow: 2px 2px #000; white-space: nowrap; opacity:0; pointer-events:none; transition: opacity .12s ease-in-out; font-size:12px; }
+.cc-mini-btn:hover::after, .cc-mini-btn:focus-visible::after { opacity:1; }
+
+.cc-card-counter {
+  position: absolute;
+  left: 50%;
+  bottom: 72px; /* Adjust this value to position the counter above the controls */
+  transform: translateX(-50%);
+  font-size: 14px;
+  color: #555;
+  z-index: 6;
+  display: none; /* Initially hidden */
+}
+
+/* Floating actions (右侧) */
+.cc-fab { position:absolute; right:-64px; top:50%; transform: translateY(-50%); display:flex; flex-direction:column; gap:12px; }
+.cc-fab-btn { position:relative; width:48px; height:48px; border-radius:50%; background:#fff; color:#000; border:3px solid #000; display:grid; place-items:center; cursor:pointer; box-shadow: 4px 4px #000; }
+.cc-fab-btn:hover { transform: translate(-1px, -1px); box-shadow: 6px 6px #000; }
+/* 悬浮标签移到按钮右侧 */
+.cc-fab-btn::after { content: attr(aria-label); position:absolute; left:56px; top:50%; transform: translateY(-50%); background:#fff; color:#000; border:2px solid #000; padding:4px 8px; box-shadow: 2px 2px #000; white-space: nowrap; opacity:0; pointer-events:none; transition: opacity .12s ease-in-out; }
+.cc-fab-btn:hover::after, .cc-fab-btn:focus-visible::after { opacity:1; }
+
+.cc-flex { display:flex; gap:8px; align-items:center; }
+.cc-spinner { width: 18px; height: 18px; border: 3px solid #000; border-right-color: transparent; border-radius: 50%; animation: ccspin 0.8s linear infinite; }
+@keyframes ccspin { to { transform: rotate(360deg); } }
+
+/* Loading 居中覆盖在整个模态框 */
+.cc-center-overlay { position:absolute; inset:0; display:none; align-items:center; justify-content:center; pointer-events:none; }
+.cc-center-overlay .cc-center { display:flex; align-items:center; gap:10px; font-size:15px; }
+.cc-center-overlay .cc-spinner { width:16px; height:16px; border-width:2px; }
+
+/* 全局底部控制条：整体居中四按钮组 */
+.cc-bottom-controls { position:absolute; left:50%; bottom:12px; transform: translateX(-50%); display:none; align-items:center; justify-content:center; gap:12px; z-index:5; }
+.cc-bc-left, .cc-bc-center, .cc-bc-right { display:flex; align-items:center; gap:12px; }
+
+/* Loading card：紧凑美观覆盖（保留以兼容旧渲染） */
+.cc-card.cc-loading { padding: 14px 16px; }
+.cc-loading { min-height: 0; display:flex; align-items:center; gap:10px; }
+.cc-card.cc-loading .cc-spinner { width:14px; height:14px; border-width:2px; }

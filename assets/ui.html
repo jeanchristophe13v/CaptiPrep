@@ -1,0 +1,60 @@
+<div class="cc-overlay" role="dialog" aria-modal="true">
+  <div class="cc-modal">
+    <div class="cc-header">
+      <div class="cc-title">CaptiPrep</div>
+      <div class="cc-actions">
+        <button class="cc-icon" id="cc-settings" title="Settings" aria-label="Settings">
+          <!-- iconSettings -->
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 1 1 7.04 3.3l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c0 .66.26 1.3.73 1.77.47.47 1.11.73 1.77.73h.09a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+        <button class="cc-icon" id="cc-close" title="Close" aria-label="Close">
+          <!-- iconClose -->
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="cc-body">
+      <div id="cc-step"></div>
+      <div id="cc-content"></div>
+    </div>
+    <div class="cc-fab" aria-label="Actions">
+      <button class="cc-fab-btn" id="cc-toggleview" title="Toggle view" aria-label="Toggle view">
+        <!-- iconGrid -->
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      </button>
+      <button class="cc-fab-btn" id="cc-regenerate" title="Regenerate" aria-label="Regenerate">
+        <!-- iconRefresh -->
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2-9.94"/></svg>
+      </button>
+      <button class="cc-fab-btn" id="cc-export" title="Export CSV" aria-label="Export CSV">
+        <!-- iconExport -->
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><polyline points="7 8 12 3 17 8"/><path d="M21 21H3v-4a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v4z"/></svg>
+      </button>
+    </div>
+    <div id="cc-card-counter" class="cc-card-counter"></div>
+    <div class="cc-bottom-controls" id="cc-bottom-controls">
+      <div class="cc-bc-left">
+        <button class="cc-mini-btn" id="cc-b-prev" aria-label="Previous" title="Previous">
+          <!-- iconLeft -->
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+      </div>
+      <div class="cc-bc-center">
+        <button class="cc-mini-btn" id="cc-b-edit" aria-label="Edit" title="Edit">
+          <!-- iconEdit -->
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
+        </button>
+        <button class="cc-mini-btn" id="cc-b-save" aria-label="Save" title="Save" disabled>
+          <!-- iconSave -->
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+        </button>
+      </div>
+      <div class="cc-bc-right">
+        <button class="cc-mini-btn" id="cc-b-next" aria-label="Next" title="Next">
+          <!-- iconRight -->
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
