@@ -78,6 +78,20 @@ async function createUI() {
 
   document.documentElement.appendChild(uiRoot);
 
+  // 标题左侧添加品牌图标（避免重复插入）
+  try {
+    const titleEl = uiRoot.querySelector('.cc-title');
+    if (titleEl && !titleEl.querySelector('.cc-brand-icon')) {
+      const iconUrl = chrome.runtime.getURL('icon.png');
+      const span = document.createElement('span');
+      span.className = 'cc-brand-icon';
+      span.style.backgroundImage = `url(${iconUrl})`;
+      span.setAttribute('aria-hidden', 'true');
+      // 将图标放在标题文字左侧
+      titleEl.insertBefore(span, titleEl.firstChild);
+    }
+  } catch {}
+  
   // 按钮事件
   uiRoot.querySelector('#cc-close')?.addEventListener('click', closeModal);
   uiRoot.querySelector('#cc-settings')?.addEventListener('click', () => chrome.runtime.sendMessage({ type: 'CC_OPEN_OPTIONS' }));
@@ -423,16 +437,27 @@ function renderLearnView() {
 function renderCardView(card) {
   const c = { term: '', ipa: '', pos: '', definition: '', examples: [], notes: '', ...card };
   const ipa = formatIpa(c.ipa);
-  const ex = (c.examples || []).map(e => `<li>${escapeHtml(e)}</li>`).join('');
+  const examplesHtml = renderExamplesQuote(c.examples || []);
   return `
     <div class="cc-view">
       <div class="term">${escapeHtml(c.term)}</div>
       <div class="meta">${ipa ? `/${escapeHtml(ipa)}/` : ''} ${c.pos ? `· ${escapeHtml(c.pos)}` : ''}</div>
       <div class="definition">${escapeHtml(c.definition||'')}</div>
-      ${ex ? `<ul class="examples">${ex}</ul>` : ''}
+      ${examplesHtml}
       ${c.notes ? `<div class="notes">${escapeHtml(c.notes)}</div>` : ''}
     </div>
   `;
+}
+
+function renderExamplesQuote(list) {
+  if (!list || !list.length) return '';
+  const blocks = list.slice(0, 2).map(raw => {
+    const lines = String(raw).split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    const en = lines[0] || '';
+    const zh = lines[1] || '';
+    return `<blockquote><div>${escapeHtml(en)}</div>${zh ? `<div class="cc-small">${escapeHtml(zh)}</div>` : ''}</blockquote>`;
+  }).join('');
+  return `<div class="examples-quote">${blocks}</div>`;
 }
 
 function renderCardEditor(card) {
@@ -443,7 +468,7 @@ function renderCardEditor(card) {
       <label>IPA</label><input class="cc-input" id="cc-ipa" value="${escapeAttr(c.ipa)}"/>
       <label>POS</label><input class="cc-input" id="cc-pos" value="${escapeAttr(c.pos)}"/>
       <label>Definition</label><input class="cc-input" id="cc-def" value="${escapeAttr(c.definition)}"/>
-      <label>Examples</label><textarea class="cc-input ex" id="cc-ex" rows="6">${escapeHtml((c.examples||[]).join('\n'))}</textarea>
+      <label>Examples</label><textarea class="cc-input ex" id="cc-ex" rows="6">${escapeHtml((c.examples||[]).join('\n\n'))}</textarea>
       <label>Notes</label><textarea class="cc-input notes" id="cc-notes" rows="4">${escapeHtml(c.notes||'')}</textarea>
     </div>
   `;
@@ -454,7 +479,11 @@ function readCardEditor() {
   const ipa = document.getElementById('cc-ipa').value.trim();
   const pos = document.getElementById('cc-pos').value.trim();
   const definition = document.getElementById('cc-def').value.trim();
-  const examples = document.getElementById('cc-ex').value.split('\n').map(s => s.trim()).filter(Boolean);
+  const raw = document.getElementById('cc-ex').value;
+  // Split examples by blank lines to keep English+Chinese together
+  const examples = raw
+    .split(/\r?\n\s*\r?\n/) // blocks separated by blank line
+    .map(b => b.replace(/\s+$/,'').replace(/^\s+/,'')).filter(Boolean);
   const notes = document.getElementById('cc-notes').value.trim();
   return { term, ipa, pos, definition, examples, notes };
 }

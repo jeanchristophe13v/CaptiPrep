@@ -3,7 +3,11 @@
 .cc-overlay { position: absolute; inset:0; background: rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; }
 .cc-modal { position: relative; overflow: visible; width: min(1080px, 98vw); height: min(765px, 94vh); background:#fff; color:#000; border:3px solid #000; box-shadow: 8px 8px #000; display:flex; flex-direction:column; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
 .cc-header { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:3px solid #000; background: #f5f5f5; }
-.cc-title { font-weight: 800; letter-spacing: 1px; font-size:20px; }
+.cc-title { font-weight: 800; letter-spacing: 1px; font-size:22px; display:inline-flex; align-items:center; gap:12px; margin-left: 8px; }
+.cc-brand-icon { display:inline-block; width:36px; height:36px; background-size: contain; background-repeat: no-repeat; background-position: center; image-rendering: -webkit-optimize-contrast; transform: translateY(2px); }
+@media (min-resolution: 2dppx) {
+  .cc-brand-icon { width:40px; height:40px; }
+}
 .cc-actions { display:flex; gap:12px; }
 /* 顶部图标：白底圆形 + 悬浮标签 */
 .cc-icon { position:relative; background:#fff; color:#000; border:2px solid #000; width:34px; height:34px; border-radius:50%; display:grid; place-items:center; cursor:pointer; box-shadow: 2px 2px #000; }
@@ -54,6 +58,10 @@
 .cc-view .examples { margin-top:24px; font-size:16px; }
 .cc-view .examples li { margin-left: 20px; list-style: disc; }
 .cc-view .notes { margin-top:20px; color:#333; font-style: italic; font-size:14px; }
+/* Quote-style examples */
+.cc-view .examples-quote { margin-top: 24px; font-size: 16px; }
+.cc-view .examples-quote blockquote { margin: 0 0 16px; padding-left: 12px; border-left: 3px solid #000; }
+.cc-view .examples-quote blockquote:last-child { margin-bottom: 0; }
 
 /* Grid view */
 .cc-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:12px; }

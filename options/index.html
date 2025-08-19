@@ -55,10 +55,22 @@
       .model-line { grid-template-columns: 1fr; }
       .w-1-3 { width: 100%; max-width: 100%; }
     }
+
+    /* Brand hero at top (smaller to avoid scroll) */
+    .brand-footer { display:flex; justify-content:center; align-items:center; margin: 16px auto 8px; }
+    .brand-footer .brand-icon { width: 160px; height: 160px; object-fit: contain; image-rendering: -webkit-optimize-contrast; }
+    @media (min-resolution: 2dppx) {
+      .brand-footer .brand-icon { width: 180px; height: 180px; }
+    }
   </style>
   <script defer src="options.js"></script>
   </head>
 <body>
+  <!-- Brand icon moved to top -->
+  <div class="brand-footer">
+    <img src="../icons/icon-512.png" alt="CaptiPrep" class="brand-icon" />
+  </div>
+
   <div class="wrap">
     <div class="topbar">
       <h1>CaptiPrep Settings</h1>
@@ -85,7 +97,7 @@
         </div>
         <div class="row">
           <label for="baseUrl">Base URL (optional)</label>
-          <input id="baseUrl" placeholder="auto by provider (e.g. https://api.openai.com/v1)" />
+          <input id="baseUrl" placeholder="e.g. https://api.openai.com/v1" />
         </div>
         <div class="row">
           <label for="apiKey">API Key</label>
@@ -139,5 +151,7 @@
       </div>
     </section>
   </div>
+
+  <!-- Removed bottom brand icon to avoid extra height -->
 </body>
 </html>

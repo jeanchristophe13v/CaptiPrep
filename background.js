@@ -7,7 +7,7 @@ const DEFAULT_SETTINGS = {
   apiKey: '',
   model: 'gemini-2.5-flash',
   // New: allow different models per role (fallback to `model`)
-  modelFirst: 'gemini-2.5-flash',
+  modelFirst: 'gemini-2.5-flash-lite-preview-06-17',
   modelSecond: 'gemini-2.5-flash',
   accent: 'us', // 'us' or 'uk'
   // New: definition/notes language for cards ('en' | 'zh')
@@ -179,12 +179,11 @@ Transcript (English, lightly noisy, do minimal normalization to understand):\n\n
     const glossLabel = glossLang === 'zh' ? 'Chinese' : 'English';
     const system = `You are a concise English lexicographer. Output clean IPA and succinct meanings.`;
 
-    // Example sentence rules: default English; if glossLang is Chinese, add a Chinese translation/example as well.
-    const exampleRule = (glossLang === 'zh')
-      ? `Provide exactly 2 example sentences per item in this order:
-  1) in English (natural, common)
-  2) in Chinese (concise, faithful to #1; do not add extra notes here)`
-      : `Provide 1–2 example sentences in English (natural, common).`;
+    // Always require two example pairs: English + Chinese translation
+    const exampleRule = `Provide exactly 2 example PAIRS per item. For each pair, output a SINGLE STRING value with TWO lines separated by a newline ("\n"):
+  line 1: an English sentence (natural, common)
+  line 2: the concise Chinese translation of line 1
+Do not add bullets, numbering, labels, or extra notes.`;
 
     const defRule = (glossLang === 'zh')
       ? `Write the "definition" and "notes" in Chinese.`
@@ -202,10 +201,15 @@ Return JSON strictly with this shape:
     "ipa": string,            // IPA (${accentLabel})
     "pos": string,            // e.g., noun, verb, adj. (in English)
     "definition": string,     // concise learner definition (${glossLabel})
-    "examples": string[],     // ${glossLang === 'zh' ? 'exactly 2: [English, Chinese]' : '1–2 English sentences'}
+    "examples": string[],     // exactly 2 strings; each string contains two lines: English then Chinese
     "notes": string           // may be empty (${glossLabel})
   } ]
 }
+
+Additional formatting rules:
+- Output raw JSON only (no Markdown fences).
+- Do not use list markers (-, *, 1.) inside strings.
+- Keep IPA clean without slashes.
 
 Items:\n${selected.map((t, i) => `${i + 1}. ${t.term}`).join('\n')}`;
     return { prompt: composeChat(system, user) };

@@ -3,7 +3,7 @@ const DEFAULTS = {
   baseUrl: '',
   apiKey: '',
   model: 'gemini-2.5-flash',
-  modelFirst: 'gemini-2.5-flash',
+  modelFirst: 'gemini-2.5-flash-lite-preview-06-17',
   modelSecond: 'gemini-2.5-flash',
   accent: 'us',
   glossLang: 'en'
@@ -13,15 +13,34 @@ let cachedModels = [];
 let saveTimer = null;
 let saving = false;
 
-async function load() {
-  const { settings } = await chrome.storage.local.get('settings');
-  const s = { ...DEFAULTS, ...(settings || {}) };
-  if (!s.modelFirst) s.modelFirst = s.model;
-  if (!s.modelSecond) s.modelSecond = s.model;
+// Per-provider profiles persisted in storage
+let PROFILES = {}; // { [provider]: { apiKey, baseUrl, modelFirst, modelSecond } }
+let CURRENT_PROVIDER = 'gemini';
 
-  document.getElementById('provider').value = s.provider;
-  document.getElementById('baseUrl').value = s.baseUrl || '';
-  document.getElementById('apiKey').value = s.apiKey || '';
+async function load() {
+  const store = await chrome.storage.local.get(['settings', 'settingsProfiles']);
+  const s = { ...DEFAULTS, ...(store.settings || {}) };
+
+  // Migrate or init profiles
+  PROFILES = store.settingsProfiles || {};
+  if (!Object.keys(PROFILES).length) {
+    const p = s.provider || 'gemini';
+    PROFILES[p] = {
+      apiKey: s.apiKey || '',
+      baseUrl: s.baseUrl || '',
+      modelFirst: s.modelFirst || (p === 'gemini' ? DEFAULTS.modelFirst : ''),
+      modelSecond: s.modelSecond || (p === 'gemini' ? DEFAULTS.modelSecond : '')
+    };
+    await chrome.storage.local.set({ settingsProfiles: PROFILES });
+  }
+
+  CURRENT_PROVIDER = s.provider || 'gemini';
+
+  // UI: provider & global options
+  document.getElementById('provider').value = CURRENT_PROVIDER;
+  document.getElementById('baseUrl').value = '';
+  document.getElementById('apiKey').value = '';
+
   // Accent radios
   const radios = document.querySelectorAll('input[name="accent"]');
   let set = false; radios.forEach(r => { if (r.value === (s.accent || 'us')) { r.checked = true; set = true; } });
@@ -32,10 +51,44 @@ async function load() {
   let gset = false; glossRadios.forEach(r => { if (r.value === (s.glossLang || 'en')) { r.checked = true; gset = true; } });
   if (!gset) { const en = document.querySelector('input[name="glossLang"][value="en"]'); if (en) en.checked = true; }
 
-  document.getElementById('modelFirst').value = s.modelFirst || '';
-  document.getElementById('modelSecond').value = s.modelSecond || '';
+  // Apply active provider profile (with Gemini defaults only)
+  applyProfileToForm(getActiveProfile(CURRENT_PROVIDER, true));
 
   wireAutosave();
+  wireProviderSwitch();
+  wirePerModelTests();
+}
+
+function getActiveProfile(provider, withDefaults = false) {
+  const p = provider || CURRENT_PROVIDER || 'gemini';
+  const prof = { ...(PROFILES[p] || {}) };
+  if (withDefaults && p === 'gemini') {
+    if (!prof.modelFirst) prof.modelFirst = DEFAULTS.modelFirst;
+    if (!prof.modelSecond) prof.modelSecond = DEFAULTS.modelSecond;
+  }
+  // Ensure fields
+  return {
+    apiKey: prof.apiKey || '',
+    baseUrl: prof.baseUrl || '',
+    modelFirst: prof.modelFirst || '',
+    modelSecond: prof.modelSecond || ''
+  };
+}
+
+function applyProfileToForm(prof) {
+  document.getElementById('baseUrl').value = prof.baseUrl || '';
+  document.getElementById('apiKey').value = prof.apiKey || '';
+  document.getElementById('modelFirst').value = prof.modelFirst || '';
+  document.getElementById('modelSecond').value = prof.modelSecond || '';
+}
+
+function collectProfileFromForm() {
+  return {
+    baseUrl: document.getElementById('baseUrl').value.trim(),
+    apiKey: document.getElementById('apiKey').value.trim(),
+    modelFirst: document.getElementById('modelFirst').value.trim(),
+    modelSecond: document.getElementById('modelSecond').value.trim()
+  };
 }
 
 function getFormSettings() {
@@ -43,13 +96,16 @@ function getFormSettings() {
   const accent = radios.length ? radios[0].value : 'us';
   const glossSel = document.querySelectorAll('input[name="glossLang"]:checked');
   const glossLang = glossSel.length ? glossSel[0].value : 'en';
+
+  const prof = collectProfileFromForm();
+  const model = prof.modelFirst || prof.modelSecond || '';
   return {
-    provider: document.getElementById('provider').value,
-    baseUrl: document.getElementById('baseUrl').value.trim(),
-    model: document.getElementById('modelFirst').value.trim() || document.getElementById('modelSecond').value.trim(),
-    modelFirst: document.getElementById('modelFirst').value.trim(),
-    modelSecond: document.getElementById('modelSecond').value.trim(),
-    apiKey: document.getElementById('apiKey').value.trim(),
+    provider: CURRENT_PROVIDER,
+    baseUrl: prof.baseUrl,
+    model,
+    modelFirst: prof.modelFirst,
+    modelSecond: prof.modelSecond,
+    apiKey: prof.apiKey,
     accent,
     glossLang
   };
@@ -61,7 +117,15 @@ async function save(now = false) {
   const doSave = async () => {
     saving = true;
     status.textContent = 'Saving…';
-    await chrome.storage.local.set({ settings: s });
+
+    // Update in-memory profile and persist profiles + flattened current settings
+    PROFILES[CURRENT_PROVIDER] = { ...PROFILES[CURRENT_PROVIDER], ...collectProfileFromForm() };
+
+    await chrome.storage.local.set({
+      settingsProfiles: PROFILES,
+      settings: s // keep legacy flattened for background
+    });
+
     saving = false;
     status.textContent = 'Saved ✅';
     setTimeout(() => { if (!saving) status.textContent = ''; }, 1800);
@@ -83,6 +147,18 @@ function wireAutosave() {
   document.querySelectorAll('input[name="accent"]').forEach(r => r.addEventListener('change', () => save(false)));
   // GlossLang radios
   document.querySelectorAll('input[name="glossLang"]').forEach(r => r.addEventListener('change', () => save(false)));
+}
+
+function wireProviderSwitch() {
+  const sel = document.getElementById('provider');
+  if (!sel) return;
+  sel.addEventListener('change', async () => {
+    CURRENT_PROVIDER = sel.value;
+    // When switching, apply stored profile; Gemini gets defaults if empty
+    applyProfileToForm(getActiveProfile(CURRENT_PROVIDER, true));
+    // Save provider selection immediately (profiles unchanged yet)
+    await save(true);
+  });
 }
 
 function flashStatus(msg) {
