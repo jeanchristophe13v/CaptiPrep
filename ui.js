@@ -797,11 +797,11 @@ function renderOnboarding() {
   const content = uiRoot.querySelector('#cc-content');
   content.innerHTML = `
     <div class="cc-card">
-      <div><b>First-time setup required</b></div>
-      <p class="cc-small">Please configure your LLM provider, model, API key, and accent before generating cards.</p>
+      <div class="cc-setup-title"><b>First-time setup required</b></div>
+      <p class="cc-small cc-setup-desc">Please configure your LLM provider, model, API key, and accent before generating cards.</p>
       <div class="cc-controls">
-        <button class="cc-btn" id="cc-open-settings">Open Settings</button>
-        <button class="cc-btn" id="cc-continue">I have configured</button>
+        <button class="cc-btn-white" id="cc-open-settings">Open Settings</button>
+        <button class="cc-btn-white" id="cc-continue">I have configured</button>
       </div>
     </div>
   `;
