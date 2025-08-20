@@ -1,6 +1,7 @@
 // Backend content script: caption extraction, storage, LLM calls; exposes API to UI via window.CaptiPrep.backend
 
-const CC_NS = 'CCAPTIPREPS';
+var CC_NS = 'CCAPTIPREPS';
+var t = (k, ...subs) => (chrome.i18n && chrome.i18n.getMessage ? chrome.i18n.getMessage(k, subs) : '') || k;
 
 // ===== Debug helper =====
 const CC_DEBUG = false;
@@ -310,7 +311,7 @@ async function extractCaptionsText() {
   } catch (e) { dlog('Player response method failed:', e?.message || e); }
 
   const { videoId } = getYouTubeVideoInfo();
-  if (!videoId) throw new Error('Could not determine video ID from current page');
+  if (!videoId) throw new Error(t('error_no_video'));
   const tries = [
     `https://www.youtube.com/api/timedtext?lang=en&v=${encodeURIComponent(videoId)}&fmt=json3`,
     `https://www.youtube.com/api/timedtext?lang=en&kind=asr&v=${encodeURIComponent(videoId)}&fmt=json3`,
@@ -324,7 +325,7 @@ async function extractCaptionsText() {
   for (const url of tries) {
     try { const text = await fetchAndExtract(url); if (text && text.trim()) return text; } catch {}
   }
-  throw new Error('No available English captions for this video.');
+  throw new Error(t('error_no_captions'));
 }
 
 // ===== Expose backend to UI =====

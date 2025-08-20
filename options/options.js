@@ -1,3 +1,15 @@
+let __i18nDict = null;
+function t(k, ...subs) {
+  try {
+    if (__i18nDict && __i18nDict[k]) {
+      let s = __i18nDict[k];
+      if (subs && subs.length) subs.forEach((v, i) => { s = s.replace(new RegExp('\\$' + (i + 1), 'g'), String(v)); });
+      return s;
+    }
+  } catch {}
+  return (chrome.i18n && chrome.i18n.getMessage ? chrome.i18n.getMessage(k, subs) : '') || k;
+}
+
 const DEFAULTS = {
   provider: 'gemini',
   baseUrl: '',
@@ -6,7 +18,8 @@ const DEFAULTS = {
   modelFirst: 'gemini-2.5-flash-lite-preview-06-17',
   modelSecond: 'gemini-2.5-flash',
   accent: 'us',
-  glossLang: 'en'
+  glossLang: 'en',
+  uiLang: 'auto'
 };
 
 let cachedModels = [];
@@ -40,6 +53,14 @@ async function load() {
   document.getElementById('provider').value = CURRENT_PROVIDER;
   document.getElementById('baseUrl').value = '';
   document.getElementById('apiKey').value = '';
+  // UI language select
+  const uiLangSel = document.getElementById('uiLang');
+  if (uiLangSel) {
+    let v = s.uiLang || 'auto';
+    if (v === 'zh_TW') v = 'zh_CN';
+    const has = Array.from(uiLangSel.options).some(o => o.value === v);
+    uiLangSel.value = has ? v : 'auto';
+  }
 
   // Accent radios
   const radios = document.querySelectorAll('input[name="accent"]');
@@ -57,6 +78,8 @@ async function load() {
   wireAutosave();
   wireProviderSwitch();
   wirePerModelTests();
+  // re-apply i18n with override if selected
+  try { await applyUiLangOverride(); } catch {}
 }
 
 function getActiveProfile(provider, withDefaults = false) {
@@ -107,7 +130,8 @@ function getFormSettings() {
     modelSecond: prof.modelSecond,
     apiKey: prof.apiKey,
     accent,
-    glossLang
+    glossLang,
+    uiLang: (document.getElementById('uiLang')?.value || 'auto')
   };
 }
 
@@ -116,7 +140,7 @@ async function save(now = false) {
   const status = document.getElementById('saveStatus');
   const doSave = async () => {
     saving = true;
-    status.textContent = 'Saving…';
+    status.textContent = t('status_saving');
 
     // Update in-memory profile and persist profiles + flattened current settings
     PROFILES[CURRENT_PROVIDER] = { ...PROFILES[CURRENT_PROVIDER], ...collectProfileFromForm() };
@@ -127,7 +151,7 @@ async function save(now = false) {
     });
 
     saving = false;
-    status.textContent = 'Saved ✅';
+    status.textContent = t('status_saved');
     setTimeout(() => { if (!saving) status.textContent = ''; }, 1800);
   };
   if (now) return doSave();
@@ -136,12 +160,19 @@ async function save(now = false) {
 }
 
 function wireAutosave() {
-  const ids = ['provider','baseUrl','apiKey','modelFirst','modelSecond'];
+  const ids = ['provider','baseUrl','apiKey','modelFirst','modelSecond','uiLang'];
   ids.forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     const evt = (el.tagName === 'SELECT') ? 'change' : 'input';
-    el.addEventListener(evt, () => save(false));
+    el.addEventListener(evt, async () => {
+      if (id === 'uiLang') {
+        try { await applyUiLangOverride(); } catch {}
+        await save(false);
+      } else {
+        await save(false);
+      }
+    });
   });
   // Accent radios
   document.querySelectorAll('input[name="accent"]').forEach(r => r.addEventListener('change', () => save(false)));
@@ -169,14 +200,14 @@ function flashStatus(msg) {
 
 async function fetchModels() {
   const { provider, baseUrl, apiKey } = getFormSettings();
-  flashStatus('Fetching models…');
+  flashStatus(t('status_fetching_models'));
   try {
     const resp = await chrome.runtime.sendMessage({ type: 'CC_LIST_MODELS', override: { provider, baseUrl, apiKey } });
     if (!resp || !resp.ok) throw new Error(resp && resp.error || 'Unknown error');
     cachedModels = Array.from(new Set((resp.models || []).filter(Boolean)));
-    flashStatus(`Loaded ${cachedModels.length} models`);
+    flashStatus(t('status_loaded_models', String(cachedModels.length)));
   } catch (e) {
-    flashStatus('Fetch models failed: ' + (e && e.message || e));
+    flashStatus(t('status_fetch_models_failed', (e && e.message) || String(e)));
   }
 }
 
@@ -225,12 +256,12 @@ function attachSuggest(inputId, suggestId) {
 
 async function testModel(modelValue) {
   const { provider, baseUrl, apiKey } = getFormSettings();
-  flashStatus('Testing…');
+  flashStatus(t('status_testing'));
   try {
     const res = await chrome.runtime.sendMessage({ type: 'CC_TEST_LLM', override: { provider, baseUrl, model: modelValue, apiKey } });
-    if (res && res.ok) flashStatus('Test OK'); else flashStatus('Test failed: ' + (res && res.error || 'Unknown'));
+    if (res && res.ok) flashStatus(t('status_test_ok')); else flashStatus(t('status_test_failed', (res && res.error) || 'Unknown'));
   } catch (e) {
-    flashStatus('Test error: ' + (e && e.message || e));
+    flashStatus(t('status_test_error', (e && e.message) || String(e)));
   }
 }
 
@@ -239,7 +270,52 @@ function wirePerModelTests() {
   document.getElementById('testSecond')?.addEventListener('click', () => testModel(document.getElementById('modelSecond').value.trim()));
 }
 
+function applyI18nPlaceholders(root = document, dict) {
+  const getMsg = (raw) => {
+    const m = /^__MSG_([A-Za-z0-9_]+)__$/.exec(raw || '');
+    if (!m) return null;
+    const key = m[1];
+    let v = null;
+    if (dict && dict[key]) v = dict[key];
+    else v = (chrome.i18n && chrome.i18n.getMessage) ? chrome.i18n.getMessage(key) : '';
+    return v || null;
+  };
+  const byKey = (key) => {
+    if (!key) return '';
+    if (dict && dict[key]) return dict[key];
+    return (chrome.i18n && chrome.i18n.getMessage) ? chrome.i18n.getMessage(key) : '';
+  };
+  // Attributes
+  const ATTRS = ['title', 'placeholder', 'aria-label'];
+  const all = root.querySelectorAll('*');
+  all.forEach(el => {
+    ATTRS.forEach(attr => {
+      if (!el.hasAttribute(attr)) return;
+      const raw = el.getAttribute(attr);
+      const msg = getMsg(raw);
+      if (msg) el.setAttribute(attr, msg);
+    });
+    // data-i18n -> textContent
+    const key = el.getAttribute('data-i18n');
+    if (key) el.textContent = byKey(key) || el.textContent;
+    // data-i18n-* for common attrs
+    ['placeholder','title','aria-label'].forEach(a=>{
+      const k2 = el.getAttribute('data-i18n-' + a);
+      if (k2) el.setAttribute(a, byKey(k2) || el.getAttribute(a) || '');
+    });
+    // Text nodes: replace when node text is a single MSG token
+    for (const node of Array.from(el.childNodes)) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const raw = node.textContent && node.textContent.trim();
+        const msg = getMsg(raw);
+        if (msg) node.textContent = msg;
+      }
+    }
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  try { applyI18nPlaceholders(document); } catch {}
   load();
   document.getElementById('save')?.addEventListener('click', () => save(true));
   document.getElementById('fetchModels')?.addEventListener('click', fetchModels);
@@ -247,3 +323,20 @@ document.addEventListener('DOMContentLoaded', () => {
   attachSuggest('modelSecond', 'modelSecondSuggest');
   wirePerModelTests();
 });
+
+async function loadDict(lang) {
+  if (!lang || lang === 'auto') return null;
+  const url = chrome.runtime.getURL(`assets/i18n/${lang}.json`);
+  try { const res = await fetch(url); if (!res.ok) return null; return await res.json(); } catch { return null; }
+}
+
+async function applyUiLangOverride() {
+  const sel = document.getElementById('uiLang');
+  let lang = sel ? sel.value : 'auto';
+  if (lang === 'zh_TW') lang = 'zh_CN';
+  const dict = await loadDict(lang);
+  // Re-run placeholder replacement with override dictionary
+  __i18nDict = dict || null;
+  try { applyI18nPlaceholders(document, dict); } catch {}
+  try { if (dict && dict.options_title) document.title = dict.options_title; } catch {}
+}

@@ -11,7 +11,9 @@ const DEFAULT_SETTINGS = {
   modelSecond: 'gemini-2.5-flash',
   accent: 'us', // 'us' or 'uk'
   // New: definition/notes language for cards ('en' | 'zh')
-  glossLang: 'en'
+  glossLang: 'en',
+  // UI language override: 'auto' | 'en' | 'zh_CN' | 'zh_TW'
+  uiLang: 'auto'
 };
 
 async function getSettings() {
@@ -39,12 +41,9 @@ chrome.action.onClicked.addListener(async (tab) => {
   try {
     await chrome.tabs.sendMessage(tab.id, { type: 'CC_TOGGLE_MODAL' });
   } catch (e) {
-    // Content script may not be injected for this tab state; try to inject then send
+    // Content scripts may not be injected yet (e.g., initial load). Inject both UI and backend.
     try {
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: ['content.js']
-      });
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js', 'ui.js'] });
       await chrome.tabs.sendMessage(tab.id, { type: 'CC_TOGGLE_MODAL' });
     } catch (err) {
       console.error('Failed to open modal:', err);

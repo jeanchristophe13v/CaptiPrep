@@ -1,6 +1,41 @@
 // Wordbook page script (runs in extension tab)
 
 const CC_NS = 'CCAPTIPREPS';
+let __i18nDict = null;
+function t(k, ...subs) {
+  if (__i18nDict && __i18nDict[k]) {
+    let s = __i18nDict[k];
+    if (subs && subs.length) subs.forEach((v, i) => { s = s.replace(new RegExp('\\$' + (i + 1), 'g'), String(v)); });
+    return s;
+  }
+  return (chrome.i18n && chrome.i18n.getMessage ? chrome.i18n.getMessage(k, subs) : '') || k;
+}
+function applyI18nPlaceholders(root = document) {
+  const getMsg = (raw) => {
+    const m = /^__MSG_([A-Za-z0-9_]+)__$/.exec(raw || '');
+    if (!m) return null;
+    const key = m[1];
+    const v = (__i18nDict && __i18nDict[key]) || ((chrome.i18n && chrome.i18n.getMessage) ? chrome.i18n.getMessage(key) : '');
+    return v || null;
+  };
+  const ATTRS = ['title', 'placeholder', 'aria-label'];
+  const all = root.querySelectorAll('*');
+  all.forEach(el => {
+    ATTRS.forEach(attr => {
+      if (!el.hasAttribute(attr)) return;
+      const raw = el.getAttribute(attr);
+      const msg = getMsg(raw);
+      if (msg) el.setAttribute(attr, msg);
+    });
+    for (const node of Array.from(el.childNodes)) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const raw = node.textContent && node.textContent.trim();
+        const msg = getMsg(raw);
+        if (msg) node.textContent = msg;
+      }
+    }
+  });
+}
 const KEY_VIDEOS = `${CC_NS}:video:`; // prefix
 const KEY_FAV_VIDEOS = `${CC_NS}:fav:videos`;
 const KEY_FAV_WORDS = `${CC_NS}:fav:words`;
@@ -16,7 +51,20 @@ const state = {
   favWords: [],
 };
 
-init();
+(async () => {
+  try {
+    const store = await chrome.storage.local.get('settings');
+    let lang = (store && store.settings && store.settings.uiLang) || 'auto';
+    if (lang === 'zh_TW') lang = 'zh_CN';
+    if (lang && lang !== 'auto') {
+      const url = chrome.runtime.getURL(`assets/i18n/${lang}.json`);
+      const res = await fetch(url);
+      if (res.ok) __i18nDict = await res.json();
+    }
+  } catch {}
+  try { applyI18nPlaceholders(document); } catch {}
+  init();
+})();
 
 async function init() {
   await loadFavs();
@@ -178,7 +226,7 @@ function renderVideoCard(item) {
 }
 
 function renderFavWords(pane) {
-  if (!state.favWords.length) { pane.innerHTML = '<div class="cc-card">暂无收藏单词</div>'; return; }
+  if (!state.favWords.length) { pane.innerHTML = '<div class="cc-card">' + t('wordbook_none_fav_words') + '</div>'; return; }
   const groups = groupByDateFavWords(state.favWords);
   for (const [date, list] of groups) {
     const sec = document.createElement('div'); sec.className = 'wb-section';
@@ -262,7 +310,7 @@ async function onExport() {
     if (!chosen.length) return;
     const cards = chosen.map(w => w.snapshot).filter(Boolean);
     if (!cards.length) return;
-    exportCSV(cards, `favorites-${toYYYYMMDD(new Date())}`);
+    exportCSV(cards, `${t('export_favorites_prefix')}-${toYYYYMMDD(new Date())}`);
     return;
   }
   // Otherwise export selected videos

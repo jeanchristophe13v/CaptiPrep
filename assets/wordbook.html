@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CaptiPrep · Wordbook</title>
+  <title>__MSG_wordbook_title__</title>
   <link rel="stylesheet" href="cc.css" />
   <style>
     body { margin:0; background:#fafafa; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial; }
@@ -81,18 +81,18 @@
     <div class="wb-left">
       <div class="brand"><span class="logo"></span><span>CaptiPrep</span></div>
       <div class="wb-nav">
-        <button class="cc-btn-white" data-tab="history">历史记录</button>
-        <button class="cc-btn-white" data-tab="favVideos">视频收藏</button>
-        <button class="cc-btn-white" data-tab="favWords">单词收藏</button>
+        <button class="cc-btn-white" data-tab="history">__MSG_wordbook_nav_history__</button>
+        <button class="cc-btn-white" data-tab="favVideos">__MSG_wordbook_nav_fav_videos__</button>
+        <button class="cc-btn-white" data-tab="favWords">__MSG_wordbook_nav_fav_words__</button>
       </div>
     </div>
     <div class="wb-right">
       <div class="wb-toolbar">
-        <div class="wb-title" id="wb-current-title">历史记录</div>
+        <div class="wb-title" id="wb-current-title">__MSG_wordbook_nav_history__</div>
         <div class="wb-actions">
-          <button class="cc-btn-white" id="wb-select-all">全选</button>
-          <button class="cc-btn-white" id="wb-delete">删除</button>
-          <button class="cc-btn-white" id="wb-export">导出</button>
+          <button class="cc-btn-white" id="wb-select-all">__MSG_wordbook_toolbar_select_all__</button>
+          <button class="cc-btn-white" id="wb-delete">__MSG_wordbook_toolbar_delete__</button>
+          <button class="cc-btn-white" id="wb-export">__MSG_wordbook_toolbar_export__</button>
         </div>
       </div>
       <div class="wb-content fade-wrap">
@@ -105,31 +105,31 @@
   <div class="wb-overlay" id="wb-overlay" aria-hidden="true">
     <div class="wb-modal" role="dialog" aria-modal="true">
       <div class="wb-m-header">
-        <button class="cc-mini-btn" id="wb-close" aria-label="Close">
+        <button class="cc-mini-btn" id="wb-close" aria-label="__MSG_action_close__">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
         </button>
         <div class="wb-m-title" id="wb-m-title"></div>
         <span style="width:46px"></span>
       </div>
       <div class="wb-m-body">
-        <div class="wb-m-cover"><img id="wb-m-img" alt="cover" /></div>
+        <div class="wb-m-cover"><img id="wb-m-img" alt="__MSG_alt_cover__" /></div>
         <div class="wb-card-grid" id="wb-card-grid"></div>
       </div>
       <!-- bottom controls for big card preview inside modal -->
       <div class="wb-bottom" id="wb-bottom" style="display:none">
-        <button class="cc-mini-btn" id="wb-prev" aria-label="Previous">
+        <button class="cc-mini-btn" id="wb-prev" aria-label="__MSG_action_previous__">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
         </button>
-        <button class="cc-mini-btn" id="wb-fav-word" aria-label="Favorite">
+        <button class="cc-mini-btn" id="wb-fav-word" aria-label="__MSG_action_favorite__">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
         </button>
-        <button class="cc-mini-btn" id="wb-edit" aria-label="Edit">
+        <button class="cc-mini-btn" id="wb-edit" aria-label="__MSG_action_edit__">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
         </button>
-        <button class="cc-mini-btn" id="wb-save" aria-label="Save" disabled>
+        <button class="cc-mini-btn" id="wb-save" aria-label="__MSG_action_save__" disabled>
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
         </button>
-        <button class="cc-mini-btn" id="wb-next" aria-label="Next">
+        <button class="cc-mini-btn" id="wb-next" aria-label="__MSG_action_next__">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
         </button>
       </div>
@@ -140,7 +140,7 @@
   <div class="wb-overlay" id="wb-overlay-card" aria-hidden="true">
     <div class="wb-modal" role="dialog" aria-modal="true">
       <div class="wb-m-header">
-        <button class="cc-mini-btn" id="wb2-close" aria-label="Close">
+        <button class="cc-mini-btn" id="wb2-close" aria-label="__MSG_action_close__">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
         </button>
         <div class="wb-m-title" id="wb2-m-title"></div>
@@ -150,19 +150,19 @@
         <div id="wb2-big"></div>
       </div>
       <div class="wb-bottom" id="wb2-bottom" style="display:none">
-        <button class="cc-mini-btn" id="wb2-prev" aria-label="Previous">
+        <button class="cc-mini-btn" id="wb2-prev" aria-label="__MSG_action_previous__">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
         </button>
-        <button class="cc-mini-btn" id="wb2-fav-word" aria-label="Favorite">
+        <button class="cc-mini-btn" id="wb2-fav-word" aria-label="__MSG_action_favorite__">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
         </button>
-        <button class="cc-mini-btn" id="wb2-edit" aria-label="Edit">
+        <button class="cc-mini-btn" id="wb2-edit" aria-label="__MSG_action_edit__">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
         </button>
-        <button class="cc-mini-btn" id="wb2-save" aria-label="Save" disabled>
+        <button class="cc-mini-btn" id="wb2-save" aria-label="__MSG_action_save__" disabled>
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
         </button>
-        <button class="cc-mini-btn" id="wb2-next" aria-label="Next">
+        <button class="cc-mini-btn" id="wb2-next" aria-label="__MSG_action_next__">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
         </button>
       </div>

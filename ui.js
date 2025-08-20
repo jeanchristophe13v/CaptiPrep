@@ -1,4 +1,43 @@
 // UI script: handles DOM, user interactions, and rendering. Uses backend via global CaptiPrep.backend
+var __i18nDict = null;
+function t(k, ...subs) {
+  try {
+    if (__i18nDict && __i18nDict[k]) {
+      let s = __i18nDict[k];
+      if (subs && subs.length) subs.forEach((v, i) => { s = s.replace(new RegExp('\\$' + (i + 1), 'g'), String(v)); });
+      return s;
+    }
+  } catch {}
+  return (chrome.i18n && chrome.i18n.getMessage ? chrome.i18n.getMessage(k, subs) : '') || k;
+}
+function applyI18nPlaceholders(root) {
+  try {
+    const getMsg = (raw) => {
+      const m = /^__MSG_([A-Za-z0-9_]+)__$/.exec(raw || '');
+      if (!m) return null;
+      const key = m[1];
+      const v = (__i18nDict && __i18nDict[key]) || ((chrome.i18n && chrome.i18n.getMessage) ? chrome.i18n.getMessage(key) : '');
+      return v || null;
+    };
+    const ATTRS = ['title', 'placeholder', 'aria-label'];
+    const all = (root || document).querySelectorAll('*');
+    all.forEach(el => {
+      ATTRS.forEach(attr => {
+        if (!el.hasAttribute(attr)) return;
+        const raw = el.getAttribute(attr);
+        const msg = getMsg(raw);
+        if (msg) el.setAttribute(attr, msg);
+      });
+      for (const node of Array.from(el.childNodes)) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const raw = node.textContent && node.textContent.trim();
+          const msg = getMsg(raw);
+          if (msg) node.textContent = msg;
+        }
+      }
+    });
+  } catch {}
+}
 
 // Backend facade
 const B = (globalThis.CaptiPrep && globalThis.CaptiPrep.backend) || {};
@@ -73,13 +112,24 @@ async function createUI() {
     } catch {}
   }
 
-  // 加载 UI 模板
+  // 加载 UI 模板 + 语言字典
   try {
     const htmlUrl = chrome.runtime.getURL('assets/ui.html');
     const html = await fetch(htmlUrl).then(r => r.text());
     uiRoot.innerHTML = html;
+    try {
+      const store = await chrome.storage.local.get('settings');
+      let uiLang = (store && store.settings && store.settings.uiLang) || 'auto';
+      if (uiLang === 'zh_TW') uiLang = 'zh_CN';
+      if (uiLang && uiLang !== 'auto') {
+        const url = chrome.runtime.getURL(`assets/i18n/${uiLang}.json`);
+        const res = await fetch(url);
+        if (res.ok) __i18nDict = await res.json();
+      }
+    } catch {}
+    applyI18nPlaceholders(uiRoot);
   } catch {
-    uiRoot.innerHTML = '<div class="cc-overlay"><div class="cc-modal"><div class="cc-body"><div id="cc-step"></div><div id="cc-content">Failed to load UI</div></div></div></div>';
+    uiRoot.innerHTML = '<div class="cc-overlay"><div class="cc-modal"><div class="cc-body"><div id="cc-step"></div><div id="cc-content">' + t('state_failed_load_ui') + '</div></div></div></div>';
   }
 
   document.documentElement.appendChild(uiRoot);
@@ -214,10 +264,10 @@ function showWhatsNewOverlay(ver, mdText) {
     ov = document.createElement('div');
     ov.className = 'cc-update-overlay';
     ov.innerHTML = `
-      <div class="cc-update" role="dialog" aria-modal="true" aria-label="What's New">
+      <div class="cc-update" role="dialog" aria-modal="true" aria-label="' + t('whats_new_aria') + '">
         <div class="cc-update-header">
-          <div class="cc-update-title">CaptiPrep 已更新至 v<span class="cc-update-ver"></span></div>
-          <button class="cc-mini-btn" id="cc-update-close" aria-label="关闭" title="关闭">
+          <div class="cc-update-title" id="cc-update-title"></div>
+          <button class="cc-mini-btn" id="cc-update-close" aria-label="' + t('action_close') + '" title="' + t('action_close') + '">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
           </button>
         </div>
@@ -227,13 +277,13 @@ function showWhatsNewOverlay(ver, mdText) {
           </div>
         </div>
         <div class="cc-update-bottom">
-          <button class="cc-btn-white" id="cc-update-dismiss">不再显示</button>
+          <button class="cc-btn-white" id="cc-update-dismiss">' + t('whats_new_dismiss') + '</button>
         </div>
       </div>`;
     modal.appendChild(ov);
   }
-  const vEl = ov.querySelector('.cc-update-ver');
-  if (vEl) vEl.textContent = ver;
+  const titleEl = ov.querySelector('#cc-update-title');
+  if (titleEl) titleEl.textContent = t('whats_new_header', ver);
   const cEl = ov.querySelector('#cc-update-content');
   cEl.innerHTML = renderMarkdownSimple(mdText || '');
   // Wire events
@@ -323,7 +373,7 @@ function onCcKeydown(e) {
 async function bootFlow() {
   const settings = await B.getSettings();
   if (!settings.apiKey) {
-    setStep(['Setup LLM', 'Extract captions', 'Build cards'], 1);
+    setStep([t('steps_setup'), t('steps_extract'), t('steps_build')], 1);
     renderOnboarding();
     return;
   }
@@ -337,7 +387,7 @@ async function bootFlow() {
     currentState.selected = saved.selected || null;
     currentState.cards = saved.cards || null;
     renderLearnView();
-    setStep(['Extract captions', 'Filter words', 'Build cards'], 3);
+    setStep([t('steps_extract'), t('steps_filter'), t('steps_build')], 3);
     return;
   }
   // If background is currently building, keep UI in syncing state instead of restarting the pipeline
@@ -345,8 +395,8 @@ async function bootFlow() {
     currentState.subtitlesText = saved.subtitlesText || null;
     currentState.candidates = saved.candidates || null;
     currentState.selected = saved.selected || null;
-    setStep(['Extract captions', 'Filter words', 'Build cards'], 3);
-    renderProgress('Generating study cards…');
+    setStep([t('steps_extract'), t('steps_filter'), t('steps_build')], 3);
+    renderProgress(t('progress_generating'));
     startBuildWatcher();
     return;
   }
@@ -355,8 +405,8 @@ async function bootFlow() {
 
 async function startFlow(forceRegenerate = false) {
   currentState = { ...currentState, candidates: null, selected: null, cards: null, error: null };
-  setStep(['Extract captions', 'Filter words', 'Build cards'], 1);
-  renderProgress('Extracting captions…');
+  setStep([t('steps_extract'), t('steps_filter'), t('steps_build')], 1);
+  renderProgress(t('steps_extract') + '…');
   try {
     const { videoId, title } = B.getYouTubeVideoInfo();
     currentState.videoId = videoId;
@@ -366,7 +416,7 @@ async function startFlow(forceRegenerate = false) {
       if (saved && saved.cards?.length) {
         currentState = { ...currentState, ...saved };
         renderLearnView();
-        setStep(['Extract captions', 'Filter words', 'Build cards'], 3);
+        setStep([t('steps_extract'), t('steps_filter'), t('steps_build')], 3);
         return;
       }
       // If previously started building, don't redo captions/selection; just reflect progress
@@ -374,8 +424,8 @@ async function startFlow(forceRegenerate = false) {
         currentState.subtitlesText = saved.subtitlesText || null;
         currentState.candidates = saved.candidates || null;
         currentState.selected = saved.selected || null;
-        setStep(['Extract captions', 'Filter words', 'Build cards'], 3);
-        renderProgress('Generating study cards…');
+        setStep([t('steps_extract'), t('steps_filter'), t('steps_build')], 3);
+        renderProgress(t('progress_generating'));
         startBuildWatcher();
         return;
       }
@@ -383,23 +433,23 @@ async function startFlow(forceRegenerate = false) {
       if (saved && Array.isArray(saved.candidates) && saved.candidates.length && (!saved.selected || !saved.selected.length)) {
         currentState.subtitlesText = saved.subtitlesText || null;
         currentState.candidates = saved.candidates || [];
-        setStep(['Extract captions', 'Filter words', 'Build cards'], 2);
+        setStep([t('steps_extract'), t('steps_filter'), t('steps_build')], 2);
         renderSelection();
         return;
       }
       // If selecting is in progress, show filtering progress and watch for completion
       if (saved && saved.selecting && saved.subtitlesText) {
         currentState.subtitlesText = saved.subtitlesText;
-        setStep(['Extract captions', 'Filter words', 'Build cards'], 2);
-        renderProgress('Filtering words/phrases…');
+        setStep([t('steps_extract'), t('steps_filter'), t('steps_build')], 2);
+        renderProgress(t('progress_filtering'));
         startSelectWatcher();
         return;
       }
       // If subtitles already extracted, skip extraction and continue to filtering
       if (saved && saved.subtitlesText) {
         currentState.subtitlesText = saved.subtitlesText;
-        setStep(['Extract captions', 'Filter words', 'Build cards'], 2);
-        renderProgress('Filtering words/phrases…');
+        setStep([t('steps_extract'), t('steps_filter'), t('steps_build')], 2);
+        renderProgress(t('progress_filtering'));
         await B.saveVideoData(currentState.videoId, { selecting: true });
         try {
           const resp = await B.llmCall('first', { subtitlesText: currentState.subtitlesText, maxItems: 60 });
@@ -420,12 +470,12 @@ async function startFlow(forceRegenerate = false) {
     await B.saveVideoData(currentState.videoId, { subtitlesText, title, createdAt });
   } catch (e) {
     currentState.error = String(e?.message || e);
-    renderError('Captions error', currentState.error);
+    renderError(t('error_captions'), currentState.error);
     return;
   }
 
-  setStep(['Extract captions', 'Filter words', 'Build cards'], 2);
-  renderProgress('Filtering words/phrases…');
+  setStep([t('steps_extract'), t('steps_filter'), t('steps_build')], 2);
+  renderProgress(t('progress_filtering'));
   try {
     await B.saveVideoData(currentState.videoId, { selecting: true });
     const resp = await B.llmCall('first', { subtitlesText: currentState.subtitlesText, maxItems: 60 });
@@ -434,7 +484,7 @@ async function startFlow(forceRegenerate = false) {
   } catch (e) {
     currentState.error = String(e?.message || e);
     try { await B.saveVideoData(currentState.videoId, { selecting: false }); } catch {}
-    renderError('LLM #1 error', currentState.error);
+    renderError(t('error_llm1'), currentState.error);
     return;
   }
 
@@ -469,12 +519,12 @@ function updateViewToggleButton() {
   if (!btn) return;
   if (ccGridMode) {
     btn.innerHTML = iconCard();
-    btn.setAttribute('aria-label', 'Card view');
-    btn.setAttribute('title', 'Card view');
+    btn.setAttribute('aria-label', t('action_card_view'));
+    btn.setAttribute('title', t('action_card_view'));
   } else {
     btn.innerHTML = iconGrid();
-    btn.setAttribute('aria-label', 'Grid view');
-    btn.setAttribute('title', 'Grid view');
+    btn.setAttribute('aria-label', t('action_grid_view'));
+    btn.setAttribute('title', t('action_grid_view'));
   }
 }
 
@@ -541,10 +591,10 @@ function renderSelection() {
   const items = currentState.candidates || [];
   const toolbar = `
     <div class="cc-toolbar">
-      <div class="cc-toolbar-title">Review and select items</div>
+      <div class="cc-toolbar-title">${t('select_title')}</div>
       <div class="cc-toolbar-actions">
-        <button class="cc-btn-white" id="cc-sel-all" aria-label="Select all">Select All</button>
-        <button class="cc-btn-white" id="cc-next" aria-label="Next">Next</button>
+        <button class="cc-btn-white" id="cc-sel-all" aria-label="${t('select_all')}">${t('select_all')}</button>
+        <button class="cc-btn-white" id="cc-next" aria-label="${t('next')}">${t('next')}</button>
       </div>
     </div>
   `;
@@ -565,7 +615,7 @@ function renderSelection() {
     const boxes = Array.from(content.querySelectorAll('input[type="checkbox"]'));
     const allChecked = boxes.length > 0 && boxes.every(cb => cb.checked);
     const btn = content.querySelector('#cc-sel-all');
-    if (btn) btn.textContent = allChecked ? 'Unselect All' : 'Select All';
+    if (btn) btn.textContent = allChecked ? t('unselect_all') : t('select_all');
   };
 
   content.querySelector('#cc-sel-all')?.addEventListener('click', () => {
@@ -593,8 +643,8 @@ function renderSelection() {
 }
 
 async function buildCards() {
-  setStep(['Extract captions', 'Filter words', 'Build cards'], 3);
-  renderProgress('Generating study cards…');
+  setStep([t('steps_extract'), t('steps_filter'), t('steps_build')], 3);
+  renderProgress(t('progress_generating'));
   try {
     // mark background building so UI can resume progress on reopen
     await B.saveVideoData(currentState.videoId, { building: true });
@@ -608,7 +658,7 @@ async function buildCards() {
   } catch (e) {
     currentState.error = String(e?.message || e);
     try { await B.saveVideoData(currentState.videoId, { building: false }); } catch {}
-    renderError('LLM #2 error', currentState.error);
+    renderError(t('error_llm2'), currentState.error);
   }
 }
 
@@ -623,7 +673,7 @@ function startBuildWatcher() {
         buildWatchTimer = null;
         currentState.cards = saved.cards;
         renderLearnView();
-        setStep(['Extract captions', 'Filter words', 'Build cards'], 3);
+        setStep([t('steps_extract'), t('steps_filter'), t('steps_build')], 3);
       }
     } catch {}
   }, 1500);
@@ -640,7 +690,7 @@ function startSelectWatcher() {
         selectWatchTimer = null;
         currentState.candidates = saved.candidates;
         hideCenterOverlay();
-        setStep(['Extract captions', 'Filter words', 'Build cards'], 2);
+        setStep([t('steps_extract'), t('steps_filter'), t('steps_build')], 2);
         renderSelection();
       }
     } catch {}
@@ -652,7 +702,7 @@ function renderLearnView() {
   const content = uiRoot.querySelector('#cc-content');
   const cards = currentState.cards || [];
   if (!cards.length) {
-    content.innerHTML = '<div class="cc-card">No cards yet.</div>';
+    content.innerHTML = '<div class="cc-card">' + t('empty_no_cards') + '</div>';
     updateBottomControls();
     return;
   }
@@ -727,12 +777,12 @@ function renderCardEditor(card) {
   const c = { term: '', ipa: '', pos: '', definition: '', examples: [], notes: '', ...card };
   return `
     <div class="cc-editor">
-      <label>Term</label><input class="cc-input" id="cc-term" value="${escapeAttr(c.term)}"/>
-      <label>IPA</label><input class="cc-input" id="cc-ipa" value="${escapeAttr(c.ipa)}"/>
-      <label>POS</label><input class="cc-input" id="cc-pos" value="${escapeAttr(c.pos)}"/>
-      <label>Definition</label><input class="cc-input" id="cc-def" value="${escapeAttr(c.definition)}"/>
-      <label>Examples</label><textarea class="cc-input ex" id="cc-ex" rows="6">${escapeHtml((c.examples||[]).join('\n\n'))}</textarea>
-      <label>Notes</label><textarea class="cc-input notes" id="cc-notes" rows="4">${escapeHtml(c.notes||'')}</textarea>
+      <label>${t('card_field_term')}</label><input class="cc-input" id="cc-term" value="${escapeAttr(c.term)}"/>
+      <label>${t('card_field_ipa')}</label><input class="cc-input" id="cc-ipa" value="${escapeAttr(c.ipa)}"/>
+      <label>${t('card_field_pos')}</label><input class="cc-input" id="cc-pos" value="${escapeAttr(c.pos)}"/>
+      <label>${t('card_field_definition')}</label><input class="cc-input" id="cc-def" value="${escapeAttr(c.definition)}"/>
+      <label>${t('card_field_examples')}</label><textarea class="cc-input ex" id="cc-ex" rows="6">${escapeHtml((c.examples||[]).join('\n\n'))}</textarea>
+      <label>${t('card_field_notes')}</label><textarea class="cc-input notes" id="cc-notes" rows="4">${escapeHtml(c.notes||'')}</textarea>
     </div>
   `;
 }
@@ -797,11 +847,11 @@ function renderOnboarding() {
   const content = uiRoot.querySelector('#cc-content');
   content.innerHTML = `
     <div class="cc-card">
-      <div class="cc-setup-title"><b>First-time setup required</b></div>
-      <p class="cc-small cc-setup-desc">Please configure your LLM provider, model, API key, and accent before generating cards.</p>
+      <div class="cc-setup-title"><b>${t('onboarding_title')}</b></div>
+      <p class="cc-small cc-setup-desc">${t('onboarding_desc')}</p>
       <div class="cc-controls">
-        <button class="cc-btn-white" id="cc-open-settings">Open Settings</button>
-        <button class="cc-btn-white" id="cc-continue">I have configured</button>
+        <button class="cc-btn-white" id="cc-open-settings">${t('onboarding_open_settings')}</button>
+        <button class="cc-btn-white" id="cc-continue">${t('onboarding_continue')}</button>
       </div>
     </div>
   `;
@@ -810,7 +860,7 @@ function renderOnboarding() {
   content.querySelector('#cc-continue')?.addEventListener('click', async () => {
     const s = await B.getSettings();
     if (!s.apiKey) {
-      alert('API key is still missing. Please save settings.');
+      alert(t('alert_missing_api_key'));
       return;
     }
     startFlow(true);

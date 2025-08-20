@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CaptiPrep Settings</title>
+  <title>__MSG_options_title__</title>
   <style>
     body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; background:#fff; color:#000; font-size: 15px; }
     .wrap { max-width: 920px; margin: 28px auto; padding: 0 12px; }
@@ -73,48 +73,64 @@
 
   <div class="wrap">
     <div class="topbar">
-      <h1>CaptiPrep Settings</h1>
+      <h1 data-i18n="options_header">__MSG_options_header__</h1>
       <div class="top-actions">
         <span class="status-badge" id="saveStatus"></span>
-        <button class="btn-white" id="save">Save</button>
+        <button class="btn-white" id="save" data-i18n="options_save">__MSG_options_save__</button>
       </div>
     </div>
 
     <section class="card">
       <div class="card-hd">
-        <div class="card-tt">Provider & Auth</div>
+        <div class="card-tt" data-i18n="options_section_language">__MSG_options_section_language__</div>
       </div>
       <div class="card-bd">
         <div class="row">
-          <label for="provider">Provider</label>
+          <label for="uiLang" data-i18n="options_label_ui_lang">__MSG_options_label_ui_lang__</label>
+          <select id="uiLang" class="w-1-3">
+            <option value="auto" data-i18n="options_ui_lang_auto">__MSG_options_ui_lang_auto__</option>
+            <option value="en" data-i18n="options_ui_lang_en">__MSG_options_ui_lang_en__</option>
+            <option value="zh_CN" data-i18n="options_ui_lang_zh_cn">__MSG_options_ui_lang_zh_cn__</option>
+          </select>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-hd">
+        <div class="card-tt" data-i18n="options_section_provider">__MSG_options_section_provider__</div>
+      </div>
+      <div class="card-bd">
+        <div class="row">
+          <label for="provider" data-i18n="options_label_provider">__MSG_options_label_provider__</label>
           <select id="provider" class="w-1-3">
-            <option value="gemini">Google Gemini</option>
-            <option value="openai">OpenAI</option>
-            <option value="anthropic">Anthropic Claude</option>
-            <option value="openrouter">OpenRouter</option>
-            <option value="openai-compatible">OpenAI Compatible</option>
+            <option value="gemini" data-i18n="options_provider_gemini">__MSG_options_provider_gemini__</option>
+            <option value="openai" data-i18n="options_provider_openai">__MSG_options_provider_openai__</option>
+            <option value="anthropic" data-i18n="options_provider_anthropic">__MSG_options_provider_anthropic__</option>
+            <option value="openrouter" data-i18n="options_provider_openrouter">__MSG_options_provider_openrouter__</option>
+            <option value="openai-compatible" data-i18n="options_provider_openai_compatible">__MSG_options_provider_openai_compatible__</option>
           </select>
         </div>
         <div class="row">
-          <label for="baseUrl">Base URL (optional)</label>
-          <input id="baseUrl" placeholder="e.g. https://api.openai.com/v1" />
+          <label for="baseUrl" data-i18n="options_label_base_url">__MSG_options_label_base_url__</label>
+          <input id="baseUrl" placeholder="__MSG_options_placeholder_base_url__" data-i18n-placeholder="options_placeholder_base_url" />
         </div>
         <div class="row">
-          <label for="apiKey">API Key</label>
-          <input id="apiKey" placeholder="paste your key" />
+          <label for="apiKey" data-i18n="options_label_api_key">__MSG_options_label_api_key__</label>
+          <input id="apiKey" placeholder="__MSG_options_placeholder_api_key__" data-i18n-placeholder="options_placeholder_api_key" />
         </div>
         <div class="row">
-          <label>音标（美式/英式）</label>
+          <label data-i18n="options_label_accent">__MSG_options_label_accent__</label>
           <div class="choices">
-            <label class="choice"><input type="radio" name="accent" value="us" /> American</label>
-            <label class="choice"><input type="radio" name="accent" value="uk" /> British</label>
+            <label class="choice"><input type="radio" name="accent" value="us" /> <span data-i18n="options_accent_us">__MSG_options_accent_us__</span></label>
+            <label class="choice"><input type="radio" name="accent" value="uk" /> <span data-i18n="options_accent_uk">__MSG_options_accent_uk__</span></label>
           </div>
         </div>
         <div class="row">
-          <label>注释语言</label>
+          <label data-i18n="options_label_gloss">__MSG_options_label_gloss__</label>
           <div class="choices">
-            <label class="choice"><input type="radio" name="glossLang" value="en" /> English</label>
-            <label class="choice"><input type="radio" name="glossLang" value="zh" /> 中文</label>
+            <label class="choice"><input type="radio" name="glossLang" value="en" /> <span data-i18n="options_gloss_en">__MSG_options_gloss_en__</span></label>
+            <label class="choice"><input type="radio" name="glossLang" value="zh" /> <span data-i18n="options_gloss_zh">__MSG_options_gloss_zh__</span></label>
           </div>
         </div>
       </div>
@@ -122,30 +138,30 @@
 
     <section class="card">
       <div class="card-hd">
-        <div class="card-tt">Models</div>
+        <div class="card-tt" data-i18n="options_section_models">__MSG_options_section_models__</div>
         <div class="actions">
-          <button class="btn-white" id="fetchModels">Fetch models</button>
+          <button class="btn-white" id="fetchModels" data-i18n="options_fetch_models">__MSG_options_fetch_models__</button>
         </div>
       </div>
       <div class="card-bd">
         <div class="row">
-          <label for="modelFirst">词汇筛选（LLM #1）</label>
+          <label for="modelFirst" data-i18n="options_label_model_first">__MSG_options_label_model_first__</label>
           <div class="model-line">
             <div class="model-field">
-              <input id="modelFirst" placeholder="Type or pick a model…" />
+              <input id="modelFirst" placeholder="__MSG_options_placeholder_model__" data-i18n-placeholder="options_placeholder_model" />
               <div class="suggest" id="modelFirstSuggest" hidden></div>
             </div>
-            <button class="btn-white" id="testFirst">Test</button>
+            <button class="btn-white" id="testFirst" data-i18n="options_test">__MSG_options_test__</button>
           </div>
         </div>
         <div class="row">
-          <label for="modelSecond">卡片制作（LLM #2）</label>
+          <label for="modelSecond" data-i18n="options_label_model_second">__MSG_options_label_model_second__</label>
           <div class="model-line">
             <div class="model-field">
-              <input id="modelSecond" placeholder="Type or pick a model…" />
+              <input id="modelSecond" placeholder="__MSG_options_placeholder_model__" data-i18n-placeholder="options_placeholder_model" />
               <div class="suggest" id="modelSecondSuggest" hidden></div>
             </div>
-            <button class="btn-white" id="testSecond">Test</button>
+            <button class="btn-white" id="testSecond" data-i18n="options_test">__MSG_options_test__</button>
           </div>
         </div>
       </div>
