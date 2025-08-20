@@ -19,28 +19,31 @@
     .wb-nav .active { background:#000; color:#fff; }
 
     .wb-right { flex:1; display:flex; flex-direction:column; }
-    .wb-toolbar { padding:12px; border-bottom:3px solid #000; background:#fff; display:flex; justify-content:space-between; align-items:center; gap:12px; }
-    .wb-title { font-weight:800; letter-spacing:.4px; }
+    .wb-toolbar { padding:12px; border-bottom:3px solid #000; background:#fff; display:flex; justify-content:flex-end; align-items:center; gap:12px; position:relative; }
+    .wb-title { font-weight:800; letter-spacing:.4px; font-size:18px; position:absolute; left:50%; transform: translateX(-50%); text-align:center; }
     .wb-actions { display:flex; gap:8px; }
 
     .wb-content { flex:1; overflow:auto; padding:16px; }
     .wb-section { margin-bottom:18px; }
     .wb-date { font-weight:800; margin:8px 0; opacity:.8; }
 
-    .wb-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(520px, 1fr)); gap:12px; }
+    /* Three cards per row on common widths; slightly larger */
+    .wb-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(440px, 1fr)); gap:12px; }
 
     .wb-vcard { position:relative; border:2px solid #000; background:#fff; display:flex; padding:0; }
-    .wb-vcard .left { width:70%; border-right:2px solid #000; display:flex; flex-direction:column; }
+    .wb-vcard .left { width:68%; border-right:2px solid #000; display:flex; flex-direction:column; }
     .wb-vcard .cover { width:100%; aspect-ratio: 16/9; background:#eee; overflow:hidden; }
     .wb-vcard .cover img { width:100%; height:100%; object-fit:cover; display:block; }
-    .wb-vcard .title { padding:12px 14px; font-weight:700; line-height:1.3; }
+    .wb-vcard .title { padding:12px 14px; font-weight:700; line-height:1.3; font-size:18px; }
     .wb-vcard .title.center { text-align:center; }
-    .wb-vcard .right { width:30%; position:relative; padding:12px; }
-    .wb-vcard .terms { position:absolute; inset:12px 12px 12px 12px; overflow:hidden; }
+    .wb-vcard .right { width:32%; position:relative; padding:12px; }
+    /* Leave space at top so right-side words don't sit under icons */
+    .wb-vcard .terms { position:absolute; inset:52px 12px 12px 12px; overflow:hidden; }
     .wb-vcard .terms .fade { position:absolute; left:0; right:0; bottom:0; height:40%; background: linear-gradient(180deg, rgba(255,255,255,0) 0%, #fff 70%); pointer-events:none; }
     .wb-vcard .term-item { font-size:14px; line-height:1.6; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
     /* Place select button to the left of the heart (both on right) */
+    /* Action icons at card's top-right */
     .wb-vcard .chk { position:absolute; top:8px; right:52px; left:auto; z-index:2; }
     .wb-vcard .fav { position:absolute; top:8px; right:8px; z-index:2; }
     .wb-icon { width:32px; height:32px; border-radius:50%; background:#fff; border:2px solid #000; display:grid; place-items:center; box-shadow:2px 2px #000; cursor:pointer; }
