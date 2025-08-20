@@ -166,6 +166,17 @@ async function createUI() {
 function onCcKeydown(e) {
   if (!modalOpen) return;
   const k = e.key;
+  if (k === 'Escape') {
+    const t = e.target;
+    const tag = (t && t.tagName ? t.tagName.toLowerCase() : '');
+    const isEditable = (tag === 'input' || tag === 'textarea' || (t && t.isContentEditable));
+    if (isEditable) return;
+    e.preventDefault();
+    e.stopPropagation();
+    try { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); } catch {}
+    closeModal();
+    return;
+  }
   if (k !== 'ArrowLeft' && k !== 'ArrowRight') return;
   const t = e.target;
   const tag = (t && t.tagName ? t.tagName.toLowerCase() : '');
