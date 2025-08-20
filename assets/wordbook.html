@@ -37,10 +37,15 @@
     .wb-vcard .terms .fade { position:absolute; left:0; right:0; bottom:0; height:40%; background: linear-gradient(180deg, rgba(255,255,255,0) 0%, #fff 70%); pointer-events:none; }
     .wb-vcard .term-item { font-size:14px; line-height:1.6; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
-    .wb-vcard .chk { position:absolute; top:8px; left:8px; z-index:2; }
+    /* Place select button to the left of the heart (both on right) */
+    .wb-vcard .chk { position:absolute; top:8px; right:52px; left:auto; z-index:2; }
     .wb-vcard .fav { position:absolute; top:8px; right:8px; z-index:2; }
     .wb-icon { width:32px; height:32px; border-radius:50%; background:#fff; border:2px solid #000; display:grid; place-items:center; box-shadow:2px 2px #000; cursor:pointer; }
     .wb-icon.active { background:#ff3b3b; color:#fff; }
+    .wb-icon.select.active { background:#000; color:#fff; }
+    .wb-vcard.selected { outline:3px solid #000; }
+    /* Selection icon on word cards */
+    .cc-card .chk { position:absolute; top:8px; right:8px; z-index:2; }
 
     .fade-wrap { position:relative; }
     .fade-pane { transition: opacity .2s ease, transform .2s ease; }
@@ -51,7 +56,7 @@
     .wb-overlay { position:fixed; inset:0; background: rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:9999; }
     .wb-modal { position:relative; width:min(1080px, 96vw); height:min(760px, 94vh); background:#fff; border:3px solid #000; box-shadow:8px 8px #000; display:flex; flex-direction:column; }
     .wb-m-header { padding:10px 12px; border-bottom:3px solid #000; background:#fff; display:flex; align-items:center; justify-content:space-between; }
-    .wb-m-title { flex:1; text-align:center; font-weight:800; }
+    .wb-m-title { flex:1; text-align:center; font-weight:800; font-size:20px; }
     .wb-m-body { flex:1; overflow:auto; padding:12px 12px 74px; }
     .wb-m-cover { width:100%; aspect-ratio:16/9; background:#eee; overflow:hidden; }
     .wb-m-cover img { width:100%; height:100%; object-fit:cover; display:block; }
@@ -79,7 +84,6 @@
         <div class="wb-actions">
           <button class="cc-btn-white" id="wb-select-all">全选</button>
           <button class="cc-btn-white" id="wb-delete">删除</button>
-          <button class="cc-btn-white" id="wb-fav">收藏</button>
           <button class="cc-btn-white" id="wb-export">导出</button>
         </div>
       </div>
@@ -118,6 +122,39 @@
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
         </button>
         <button class="cc-mini-btn" id="wb-next" aria-label="Next">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Word detail modal (overlay above video detail) -->
+  <div class="wb-overlay" id="wb-overlay-card" aria-hidden="true">
+    <div class="wb-modal" role="dialog" aria-modal="true">
+      <div class="wb-m-header">
+        <button class="cc-mini-btn" id="wb2-close" aria-label="Close">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+        <div class="wb-m-title" id="wb2-m-title"></div>
+        <span style="width:46px"></span>
+      </div>
+      <div class="wb-m-body">
+        <div id="wb2-big"></div>
+      </div>
+      <div class="wb-bottom" id="wb2-bottom" style="display:none">
+        <button class="cc-mini-btn" id="wb2-prev" aria-label="Previous">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <button class="cc-mini-btn" id="wb2-fav-word" aria-label="Favorite">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+        </button>
+        <button class="cc-mini-btn" id="wb2-edit" aria-label="Edit">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
+        </button>
+        <button class="cc-mini-btn" id="wb2-save" aria-label="Save" disabled>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+        </button>
+        <button class="cc-mini-btn" id="wb2-next" aria-label="Next">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
         </button>
       </div>

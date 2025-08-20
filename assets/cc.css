@@ -72,6 +72,7 @@
 /* Card bottom floating controls（旧版，保留不再使用） */
 .cc-card-controls { position:absolute; left:50%; bottom:16px; transform: translateX(-50%); display:flex; gap:12px; align-items:center; }
 .cc-mini-btn { position:relative; width:46px; height:46px; border-radius:50%; background:#fff; color:#000; border:3px solid #000; display:grid; place-items:center; cursor:pointer; box-shadow: 3px 3px #000; }
+.cc-mini-btn.active { background:#ff3b3b; color:#fff; }
 .cc-mini-btn:disabled { opacity: .45; cursor: not-allowed; }
 .cc-mini-btn:hover:not(:disabled) { transform: translate(-1px, -1px); box-shadow: 5px 5px #000; }
 .cc-mini-btn::after { content: attr(aria-label); position:absolute; bottom:54px; left:50%; transform: translateX(-50%); background:#fff; color:#000; border:2px solid #000; padding:4px 8px; box-shadow: 2px 2px #000; white-space: nowrap; opacity:0; pointer-events:none; transition: opacity .12s ease-in-out; font-size:12px; }

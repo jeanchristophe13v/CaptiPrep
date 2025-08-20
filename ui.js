@@ -115,6 +115,7 @@ async function createUI() {
     if (!cards.length || ccGridMode) return;
     currentCardIndex = (currentCardIndex - 1 + cards.length) % cards.length;
     ccEditMode = false;
+    blurActiveMiniButtons();
     renderLearnView();
   });
   uiRoot.querySelector('#cc-b-next')?.addEventListener('click', () => {
@@ -122,6 +123,7 @@ async function createUI() {
     if (!cards.length || ccGridMode) return;
     currentCardIndex = (currentCardIndex + 1) % cards.length;
     ccEditMode = false;
+    blurActiveMiniButtons();
     renderLearnView();
   });
   uiRoot.querySelector('#cc-b-edit')?.addEventListener('click', () => {
@@ -143,22 +145,17 @@ async function createUI() {
   uiRoot.querySelector('#cc-b-fav')?.addEventListener('click', async () => {
     const cards = currentState.cards || [];
     if (!cards.length || ccGridMode) return;
-    const card = cards[currentCardIndex];
     try {
-      await addFavoriteWordSnapshot({
-        videoId: currentState.videoId,
-        title: currentState.title,
-        cardIndex: currentCardIndex,
-        snapshot: card
-      });
-      // 简易反馈
+      const added = await toggleFavoriteCurrentCard();
       const btn = uiRoot.querySelector('#cc-b-fav');
       if (btn) {
-        btn.classList.add('cc-ok');
-        setTimeout(() => btn.classList.remove('cc-ok'), 600);
+        btn.classList.toggle('active', added);
+        if (added) { btn.classList.add('cc-ok'); setTimeout(() => btn.classList.remove('cc-ok'), 600); }
+        // 清除按钮焦点，避免 hover message 持续
+        btn.blur();
       }
     } catch (e) {
-      console.warn('favorite failed', e);
+      console.warn('favorite toggle failed', e);
     }
   });
 
@@ -178,6 +175,7 @@ function onCcKeydown(e) {
   if (!cards.length || ccGridMode) return;
   e.preventDefault();
   e.stopPropagation();
+  blurActiveMiniButtons();
   if (k === 'ArrowLeft') currentCardIndex = (currentCardIndex - 1 + cards.length) % cards.length;
   else currentCardIndex = (currentCardIndex + 1) % cards.length;
   ccEditMode = false;
@@ -304,6 +302,8 @@ function updateBottomControls() {
   counter.textContent = `${currentCardIndex + 1} / ${currentState.cards.length}`;
   const saveBtn = ctr.querySelector('#cc-b-save');
   if (saveBtn) saveBtn.disabled = !ccEditMode;
+  // update favorite button active state
+  updateFavButtonActive();
 }
 
 function showCenterOverlay(text) {
@@ -459,6 +459,7 @@ function renderLearnView() {
     }
     updateViewToggleButton();
     updateBottomControls();
+    updateFavButtonActive();
   };
 
   doRender();
@@ -616,6 +617,43 @@ async function addFavoriteWordSnapshot({ videoId, title, cardIndex, snapshot }) 
     await chrome.storage.local.set({ [key]: list });
     return true;
   } catch (e) { throw e; }
+}
+
+async function toggleFavoriteCurrentCard() {
+  const key = 'CCAPTIPREPS:fav:words';
+  const data = await chrome.storage.local.get(key);
+  let list = Array.isArray(data[key]) ? data[key] : [];
+  const exists = list.some(it => it && it.videoId === currentState.videoId && it.cardIndex === currentCardIndex);
+  if (exists) {
+    list = list.filter(it => !(it && it.videoId === currentState.videoId && it.cardIndex === currentCardIndex));
+    await chrome.storage.local.set({ [key]: list });
+    return false;
+  } else {
+    const snapshot = (currentState.cards || [])[currentCardIndex];
+    const item = { videoId: currentState.videoId, title: currentState.title, cardIndex: currentCardIndex, snapshot, savedAt: new Date().toISOString() };
+    list.push(item);
+    await chrome.storage.local.set({ [key]: list });
+    return true;
+  }
+}
+
+function blurActiveMiniButtons(){
+  try {
+    const active = document.activeElement;
+    if (active && active.classList && active.classList.contains('cc-mini-btn')) active.blur();
+  } catch {}
+}
+
+async function updateFavButtonActive() {
+  try {
+    const btn = uiRoot && uiRoot.querySelector('#cc-b-fav');
+    if (!btn || ccGridMode || !(currentState.cards || []).length) return;
+    const key = 'CCAPTIPREPS:fav:words';
+    const data = await chrome.storage.local.get(key);
+    const list = Array.isArray(data[key]) ? data[key] : [];
+    const isFav = list.some(it => it && it.videoId === currentState.videoId && it.cardIndex === currentCardIndex);
+    btn.classList.toggle('active', !!isFav);
+  } catch {}
 }
 
 // Icons

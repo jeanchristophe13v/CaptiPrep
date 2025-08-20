@@ -10,7 +10,8 @@ const el = (sel) => document.querySelector(sel);
 const state = {
   tab: 'history',
   items: [], // history: [{videoId,title,createdAt,words:[...] }]
-  selected: new Set(),
+  selected: new Set(), // for videos (videoId)
+  selectedWordKeys: new Set(), // for fav words (composite key)
   favVideos: new Set(),
   favWords: [],
 };
@@ -22,6 +23,7 @@ async function init() {
   await loadHistory();
   bindNav();
   bindToolbar();
+  bindStorageListeners();
   render();
 }
 
@@ -39,14 +41,21 @@ function bindNav() {
 
 function bindToolbar() {
   el('#wb-select-all').addEventListener('click', () => {
+    if (state.tab === 'favWords') {
+      const keys = (currentList() || []).map(wordKey);
+      const all = keys.length > 0 && keys.every(k => state.selectedWordKeys.has(k));
+      if (all) keys.forEach(k => state.selectedWordKeys.delete(k));
+      else keys.forEach(k => state.selectedWordKeys.add(k));
+      render();
+      return;
+    }
     const ids = currentList().map(v => v.videoId || v.id);
-    const allSelected = ids.every(id => state.selected.has(id));
+    const allSelected = ids.length > 0 && ids.every(id => state.selected.has(id));
     if (allSelected) ids.forEach(id => state.selected.delete(id));
     else ids.forEach(id => state.selected.add(id));
     render();
   });
   el('#wb-delete').addEventListener('click', onDelete);
-  el('#wb-fav').addEventListener('click', onFavVideos);
   el('#wb-export').addEventListener('click', onExport);
 }
 
@@ -127,8 +136,9 @@ function renderVideoCard(item) {
   const id = item.videoId;
   const checked = state.selected.has(id);
   const isFav = state.favVideos.has(id);
+  card.classList.toggle('selected', checked);
   card.innerHTML = `
-    <div class="chk wb-icon" data-act="select" aria-pressed="${checked}">
+    <div class="chk wb-icon select ${checked ? 'active' : ''}" data-act="select" aria-pressed="${checked}">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
     </div>
     <div class="fav wb-icon ${isFav ? 'active':''}" data-act="fav">
@@ -176,11 +186,26 @@ function renderFavWords(pane) {
     const grid = document.createElement('div'); grid.className = 'wb-card-grid';
     for (const w of list) {
       const c = document.createElement('div'); c.className = 'cc-card';
-      c.innerHTML = `<div><b>${escapeHtml(w.snapshot.term||'')}</b></div>
-      <div class="cc-small">${escapeHtml(w.snapshot.pos||'')}</div>
-      <div>${escapeHtml(w.snapshot.definition||'')}</div>`;
+      const key = wordKey(w);
+      const isSel = state.selectedWordKeys.has(key);
+      c.innerHTML = `
+        <div class="wb-icon chk select ${isSel ? 'active' : ''}" data-act="select"></div>
+        <div><b>${escapeHtml(w.snapshot.term||'')}</b></div>
+        <div class="cc-small">${escapeHtml(w.snapshot.pos||'')}</div>
+        <div>${escapeHtml(w.snapshot.definition||'')}</div>`;
+      const btn = c.querySelector('.chk');
+      btn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
       c.style.cursor = 'pointer';
-      c.addEventListener('click', () => openDetailWordPool(list, w));
+      c.addEventListener('click', (e) => {
+        const act = e.target.closest('[data-act]')?.getAttribute('data-act');
+        if (act === 'select') {
+          if (isSel) state.selectedWordKeys.delete(key); else state.selectedWordKeys.add(key);
+          render();
+          e.stopPropagation();
+          return;
+        }
+        openDetailWordPool(list, w);
+      });
       grid.appendChild(c);
     }
     sec.appendChild(grid);
@@ -207,6 +232,16 @@ async function toggleFavVideo(videoId) {
 }
 
 async function onDelete() {
+  if (state.tab === 'favWords') {
+    const keys = new Set(state.selectedWordKeys);
+    if (!keys.size) return;
+    const list = state.favWords.filter(w => !keys.has(wordKey(w)));
+    await chrome.storage.local.set({ [KEY_FAV_WORDS]: list });
+    state.selectedWordKeys.clear();
+    state.favWords = list;
+    render();
+    return;
+  }
   const ids = Array.from(state.selected);
   if (!ids.length) return;
   const all = await chrome.storage.local.get(null);
@@ -216,13 +251,6 @@ async function onDelete() {
   }
   state.selected.clear();
   await loadHistory();
-  render();
-}
-
-async function onFavVideos() {
-  const ids = Array.from(state.selected);
-  if (!ids.length) return;
-  for (const id of ids) await toggleFavVideo(id);
   render();
 }
 
@@ -257,6 +285,12 @@ async function openDetail(videoId, title) {
   const cards = data.cards || [];
   const overlay = el('#wb-overlay');
   const grid = el('#wb-card-grid');
+  // reset any previous big card and ensure cover/grid visible
+  const body = el('.wb-m-body');
+  const prevBig = body.querySelector('.cc-card.cc-large');
+  if (prevBig) prevBig.remove();
+  el('.wb-m-cover').style.display = '';
+  grid.style.display = '';
   el('#wb-m-title').textContent = title;
   const img = el('#wb-m-img'); setCover(img, videoId);
   overlay.style.display = 'flex';
@@ -268,10 +302,11 @@ async function openDetail(videoId, title) {
       <div class="cc-small">${escapeHtml(c.pos||'')}</div>
       <div>${escapeHtml(c.definition||'')}</div>`;
     card.style.cursor = 'pointer';
-    card.addEventListener('click', () => openBigCard(cards, i, { videoId, title }));
+    card.addEventListener('click', () => openCardModal(cards, i, { videoId, title }));
     grid.appendChild(card);
   }
   bindOverlayBasicClose();
+  setActiveKeyNav({ close: closeOverlay });
 }
 
 function bindOverlayBasicClose() {
@@ -283,38 +318,76 @@ function bindOverlayBasicClose() {
   close.addEventListener('click', closeOverlay, { once:true });
 }
 
-function closeOverlay(){ el('#wb-overlay').style.display = 'none'; el('#wb-bottom').style.display = 'none'; }
+function closeOverlay(){
+  el('#wb-overlay').style.display = 'none';
+  el('#wb-bottom').style.display = 'none';
+  const body = el('.wb-m-body');
+  const big = body && body.querySelector('.cc-card.cc-large');
+  if (big) big.remove();
+  // restore cover and grid visibility for next open
+  const cover = el('.wb-m-cover'); if (cover) cover.style.display = '';
+  const grid = el('#wb-card-grid'); if (grid) grid.style.display = '';
+  setActiveKeyNav(null);
+}
 
-function openBigCard(cards, idx, ctx) {
-  const overlay = el('#wb-overlay');
+// Second overlay: dedicated word-card modal above video detail
+function openCardModal(cards, startIdx, ctx) {
+  const overlay = el('#wb-overlay-card');
   const body = overlay.querySelector('.wb-m-body');
-  const bottom = el('#wb-bottom');
+  const big = el('#wb2-big');
+  const bottom = el('#wb2-bottom');
+  let idx = startIdx;
   let edit = false;
-
   function render() {
-    // render big card into a single cc-card.cc-large appended at top of body
-    let container = body.querySelector('.cc-card.cc-large');
-    if (!container) { container = document.createElement('div'); container.className = 'cc-card cc-large'; body.insertBefore(container, body.firstChild.nextSibling); }
+    el('#wb2-m-title').textContent = cards[idx]?.term || ctx.title || '';
+    overlay.style.display = 'flex';
+    big.innerHTML = '';
+    const container = document.createElement('div');
+    container.className = 'cc-card cc-large';
     container.innerHTML = edit ? renderCardEditor(cards[idx]) : renderCardView(cards[idx]);
+    big.appendChild(container);
     bottom.style.display = 'flex';
-    // bind buttons
-    el('#wb-prev').onclick = () => { idx = (idx - 1 + cards.length) % cards.length; edit=false; render(); };
-    el('#wb-next').onclick = () => { idx = (idx + 1) % cards.length; edit=false; render(); };
-    el('#wb-edit').onclick = () => { edit = !edit; render(); };
-    el('#wb-save').onclick = async () => {
+    // buttons
+    el('#wb2-prev').onclick = () => { try{document.activeElement.blur();}catch{} idx = (idx - 1 + cards.length) % cards.length; edit=false; render(); };
+    el('#wb2-next').onclick = () => { try{document.activeElement.blur();}catch{} idx = (idx + 1) % cards.length; edit=false; render(); };
+    el('#wb2-edit').onclick = () => { try{document.activeElement.blur();}catch{} edit = !edit; render(); };
+    el('#wb2-save').onclick = async () => {
       if (!edit) return;
       const edited = readCardEditor();
       cards[idx] = edited;
       await saveCardsForVideo(ctx.videoId, cards);
       edit = false; render();
     };
-    el('#wb-save').disabled = !edit;
-    el('#wb-fav-word').onclick = async () => {
-      await addFavoriteWordSnapshot({ videoId: ctx.videoId, title: ctx.title, cardIndex: idx, snapshot: cards[idx] });
-      const btn = el('#wb-fav-word'); if (btn) { btn.classList.add('cc-ok'); setTimeout(()=>btn.classList.remove('cc-ok'), 600); }
+    el('#wb2-save').disabled = !edit;
+    // favorite toggle + active state
+    updateFavActive('#wb2-fav-word', ctx.videoId, idx);
+    el('#wb2-fav-word').onclick = async () => {
+      try{document.activeElement.blur();}catch{}
+      const added = await toggleFavoriteWord({ videoId: ctx.videoId, title: ctx.title, cardIndex: idx, snapshot: cards[idx] });
+      const btn = el('#wb2-fav-word');
+      if (btn) {
+        btn.classList.toggle('active', added);
+        if (added) { btn.classList.add('cc-ok'); setTimeout(()=>btn.classList.remove('cc-ok'), 600); }
+      }
     };
+    setActiveKeyNav({ prev: () => el('#wb2-prev').onclick(), next: () => el('#wb2-next').onclick(), close: closeCardOverlay });
   }
+  // close behaviors
+  const modal = overlay.querySelector('.wb-modal');
+  function onBg(e){ if (!modal.contains(e.target)) closeCardOverlay(); }
+  overlay.addEventListener('mousedown', onBg, { once:true });
+  el('#wb2-close').onclick = closeCardOverlay;
   render();
+}
+
+function closeCardOverlay(){
+  const overlay = el('#wb-overlay-card');
+  overlay.style.display = 'none';
+  const bottom = el('#wb2-bottom'); if (bottom) bottom.style.display = 'none';
+  const big = el('#wb2-big'); if (big) big.innerHTML = '';
+  // restore ESC handling for underlying video overlay if visible
+  const baseVisible = el('#wb-overlay') && el('#wb-overlay').style.display === 'flex';
+  setActiveKeyNav(baseVisible ? { close: closeOverlay } : null);
 }
 
 function openDetailWordPool(pool, current) {
@@ -327,15 +400,18 @@ function openDetailWordPool(pool, current) {
   // set title and cover from current
   el('#wb-m-title').textContent = current.title || current.snapshot?.term || '';
   setCover(el('#wb-m-img'), current.videoId);
+  // Hide cover and grid for word-detail preview to avoid visual contamination
+  el('.wb-m-cover').style.display = 'none';
+  el('#wb-card-grid').style.display = 'none';
   function render() {
     let container = body.querySelector('.cc-card.cc-large');
-    if (!container) { container = document.createElement('div'); container.className = 'cc-card cc-large'; body.insertBefore(container, body.firstChild.nextSibling); }
+    if (!container) { container = document.createElement('div'); container.className = 'cc-card cc-large'; body.insertBefore(container, body.firstChild); }
     const card = pool[idx].snapshot;
     container.innerHTML = edit ? renderCardEditor(card) : renderCardView(card);
     bottom.style.display = 'flex';
-    el('#wb-prev').onclick = () => { idx = (idx - 1 + pool.length) % pool.length; edit=false; render(); };
-    el('#wb-next').onclick = () => { idx = (idx + 1) % pool.length; edit=false; render(); };
-    el('#wb-edit').onclick = () => { edit = !edit; render(); };
+    el('#wb-prev').onclick = () => { try{document.activeElement.blur();}catch{} idx = (idx - 1 + pool.length) % pool.length; edit=false; render(); };
+    el('#wb-next').onclick = () => { try{document.activeElement.blur();}catch{} idx = (idx + 1) % pool.length; edit=false; render(); };
+    el('#wb-edit').onclick = () => { try{document.activeElement.blur();}catch{} edit = !edit; render(); };
     el('#wb-save').onclick = async () => {
       if (!edit) return;
       const edited = readCardEditor();
@@ -345,12 +421,18 @@ function openDetailWordPool(pool, current) {
       edit = false; render();
     };
     el('#wb-save').disabled = !edit;
+    updateFavActive('#wb-fav-word', pool[idx].videoId, pool[idx].cardIndex);
     el('#wb-fav-word').onclick = async () => {
-      // re-fav just adds another snapshot entry
       const item = pool[idx];
-      await addFavoriteWordSnapshot({ videoId: item.videoId, title: item.title, cardIndex: item.cardIndex, snapshot: item.snapshot });
-      const btn = el('#wb-fav-word'); if (btn) { btn.classList.add('cc-ok'); setTimeout(()=>btn.classList.remove('cc-ok'), 600); }
+      try{document.activeElement.blur();}catch{}
+      const added = await toggleFavoriteWord({ videoId: item.videoId, title: item.title, cardIndex: item.cardIndex, snapshot: item.snapshot });
+      const btn = el('#wb-fav-word');
+      if (btn) {
+        btn.classList.toggle('active', added);
+        if (added) { btn.classList.add('cc-ok'); setTimeout(()=>btn.classList.remove('cc-ok'), 600); }
+      }
     };
+    setActiveKeyNav({ prev: () => el('#wb-prev').onclick(), next: () => el('#wb-next').onclick(), close: closeOverlay });
   }
   bindOverlayBasicClose();
   render();
@@ -367,6 +449,30 @@ function toYYYYMMDD(d){ const y=d.getFullYear(), m=String(d.getMonth()+1).padSta
 function sanitize(s){ return String(s||'export').replace(/[\\/:*?"<>|]/g, '_'); }
 function safeTitle(t){ const s = String(t||'').trim(); if (!s || s.toLowerCase()==='(untitled)' || s.toLowerCase()==='untitled') return ''; return s; }
 function escapeHtml(s){ return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+function wordKey(w){
+  // Use savedAt + videoId + cardIndex as stable composite key
+  return `${w.savedAt || ''}|${w.videoId || ''}|${w.cardIndex ?? ''}`;
+}
+
+function bindStorageListeners(){
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    if (KEY_FAV_WORDS in changes) {
+      const nv = changes[KEY_FAV_WORDS].newValue;
+      state.favWords = Array.isArray(nv) ? nv : [];
+      // drop selections that no longer exist
+      const valid = new Set(state.favWords.map(wordKey));
+      state.selectedWordKeys.forEach(k => { if (!valid.has(k)) state.selectedWordKeys.delete(k); });
+      if (state.tab === 'favWords') render();
+    }
+    if (KEY_FAV_VIDEOS in changes) {
+      const nv = changes[KEY_FAV_VIDEOS].newValue;
+      state.favVideos = new Set(Array.isArray(nv) ? nv : []);
+      if (state.tab !== 'favWords') render();
+    }
+  });
+}
 
 // Shared big card renderer/editor (minimal duplication of ui.js)
 function renderCardView(card) {
@@ -423,3 +529,43 @@ async function addFavoriteWordSnapshot({ videoId, title, cardIndex, snapshot }){
   list.push({ videoId, title, cardIndex, snapshot, savedAt: new Date().toISOString() });
   await chrome.storage.local.set({ [KEY_FAV_WORDS]: list });
 }
+
+async function isWordFavorited(videoId, cardIndex){
+  const o = await chrome.storage.local.get(KEY_FAV_WORDS);
+  const list = Array.isArray(o[KEY_FAV_WORDS]) ? o[KEY_FAV_WORDS] : [];
+  return list.some(it => it && it.videoId === videoId && it.cardIndex === cardIndex);
+}
+
+async function toggleFavoriteWord({ videoId, title, cardIndex, snapshot }){
+  const o = await chrome.storage.local.get(KEY_FAV_WORDS);
+  let list = Array.isArray(o[KEY_FAV_WORDS]) ? o[KEY_FAV_WORDS] : [];
+  const exists = list.some(it => it && it.videoId === videoId && it.cardIndex === cardIndex);
+  if (exists) {
+    list = list.filter(it => !(it && it.videoId === videoId && it.cardIndex === cardIndex));
+    await chrome.storage.local.set({ [KEY_FAV_WORDS]: list });
+    return false;
+  } else {
+    list.push({ videoId, title, cardIndex, snapshot, savedAt: new Date().toISOString() });
+    await chrome.storage.local.set({ [KEY_FAV_WORDS]: list });
+    return true;
+  }
+}
+
+async function updateFavActive(sel, videoId, cardIndex){
+  const btn = el(sel);
+  if (!btn) return;
+  const active = await isWordFavorited(videoId, cardIndex);
+  btn.classList.toggle('active', !!active);
+}
+
+// Keyboard navigation (Left/Right) and Escape to close
+let __activeKeyNav = null;
+function setActiveKeyNav(nav){ __activeKeyNav = nav; }
+document.addEventListener('keydown', (e) => {
+  if (!__activeKeyNav) return;
+  const tag = (e.target && e.target.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea') return;
+  if (e.key === 'Escape') { e.preventDefault(); __activeKeyNav.close && __activeKeyNav.close(); return; }
+  if (e.key === 'ArrowLeft') { e.preventDefault(); __activeKeyNav.prev && __activeKeyNav.prev(); return; }
+  if (e.key === 'ArrowRight') { e.preventDefault(); __activeKeyNav.next && __activeKeyNav.next(); return; }
+});
