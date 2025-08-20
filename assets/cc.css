@@ -109,6 +109,20 @@
 .cc-center-overlay .cc-center { display:flex; align-items:center; gap:10px; font-size:15px; }
 .cc-center-overlay .cc-spinner { width:16px; height:16px; border-width:2px; }
 
+/* What's New overlay */
+.cc-update-overlay { position:absolute; inset:0; display:none; align-items:center; justify-content:center; background: rgba(0,0,0,0.6); z-index: 9; }
+.cc-update { position:relative; width:min(760px, 96vw); max-height: 92vh; display:flex; flex-direction:column; background:#fff; border:3px solid #000; box-shadow: 8px 8px #000; }
+.cc-update-header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px; border-bottom:3px solid #000; background:#fff; }
+.cc-update-title { font-weight:800; letter-spacing:.4px; font-size:18px; }
+.cc-update-body { padding:12px 12px 64px; overflow:auto; }
+.cc-update-card { margin:0; }
+.cc-update-content { font-size:16px; line-height:1.6; }
+.cc-update-content ul { margin: 8px 0 0 18px; }
+.cc-update-content b { font-size:17px; }
+.cc-update-bottom { position:absolute; right:12px; bottom:12px; }
+/* 将更新弹窗右上角关闭按钮的提示放到右侧 */
+#cc-update-close.cc-mini-btn::after { top:50%; left:56px; transform: translateY(-50%); }
+
 /* 全局底部控制条：整体居中四按钮组 */
 .cc-bottom-controls { position:absolute; left:50%; bottom:12px; transform: translateX(-50%); display:none; align-items:center; justify-content:center; gap:12px; z-index:5; }
 .cc-bc-left, .cc-bc-center, .cc-bc-right { display:flex; align-items:center; gap:12px; }

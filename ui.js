@@ -39,6 +39,7 @@ async function openModal() {
   if (!uiRoot) await createUI();
   uiRoot.style.display = 'block';
   pauseActiveVideo();
+  try { maybeShowWhatsNew(); } catch {}
   bootFlow();
 }
 
@@ -166,6 +167,114 @@ async function createUI() {
 
   // 键盘快捷：左右箭头
   document.addEventListener('keydown', onCcKeydown, true);
+}
+
+// ===== "What's New" (更新提示) =====
+async function maybeShowWhatsNew() {
+  try {
+    const man = chrome.runtime.getManifest();
+    const ver = (man && man.version) || '';
+    if (!ver) return;
+    const { cc_whatsnew_seen } = await chrome.storage.local.get(['cc_whatsnew_seen']);
+    if (cc_whatsnew_seen === ver) return; // 本版本已经看过
+    const changelog = await loadChangelogForVersion(ver);
+    showWhatsNewOverlay(ver, changelog);
+  } catch (e) {
+    // silent
+  }
+}
+
+async function loadChangelogForVersion(ver) {
+  try {
+    const url = chrome.runtime.getURL('assets/CHANGELOG.md');
+    const text = await fetch(url).then(r => r.ok ? r.text() : '');
+    if (!text) return '';
+    // Try to extract section for current version, headings like: ## v1.2.3 or ## 1.2.3
+    const lines = text.split(/\r?\n/);
+    // Regex-based parse for the current version heading
+    const esc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const reStart = new RegExp(`^##\s*v?${esc(ver)}`);
+    let i = lines.findIndex(l => reStart.test(l));
+    if (i === -1) {
+      // Take the first section after the first heading
+      i = lines.findIndex(l => /^##\s+/.test(l));
+    }
+    if (i === -1) return lines.slice(0, 20).join('\n');
+    let j = i + 1;
+    while (j < lines.length && !/^##\s+/.test(lines[j])) j++;
+    return lines.slice(i + 1, j).join('\n').trim();
+  } catch { return ''; }
+}
+
+function showWhatsNewOverlay(ver, mdText) {
+  const modal = uiRoot && uiRoot.querySelector('.cc-modal');
+  if (!modal) return;
+  let ov = modal.querySelector('.cc-update-overlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.className = 'cc-update-overlay';
+    ov.innerHTML = `
+      <div class="cc-update" role="dialog" aria-modal="true" aria-label="What's New">
+        <div class="cc-update-header">
+          <div class="cc-update-title">CaptiPrep 已更新至 v<span class="cc-update-ver"></span></div>
+          <button class="cc-mini-btn" id="cc-update-close" aria-label="关闭" title="关闭">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="cc-update-body">
+          <div class="cc-card cc-update-card">
+            <div class="cc-update-content" id="cc-update-content"></div>
+          </div>
+        </div>
+        <div class="cc-update-bottom">
+          <button class="cc-btn-white" id="cc-update-dismiss">不再显示</button>
+        </div>
+      </div>`;
+    modal.appendChild(ov);
+  }
+  const vEl = ov.querySelector('.cc-update-ver');
+  if (vEl) vEl.textContent = ver;
+  const cEl = ov.querySelector('#cc-update-content');
+  cEl.innerHTML = renderMarkdownSimple(mdText || '');
+  // Wire events
+  const hideOnly = () => { ov.style.display = 'none'; };
+  const dismiss = async () => {
+    try {
+      const man = chrome.runtime.getManifest();
+      const verNow = (man && man.version) || ver;
+      await chrome.storage.local.set({ cc_whatsnew_seen: verNow });
+    } catch {}
+    ov.style.display = 'none';
+  };
+  ov.querySelector('#cc-update-close')?.addEventListener('click', hideOnly, { once: true });
+  ov.querySelector('#cc-update-dismiss')?.addEventListener('click', dismiss, { once: true });
+  ov.style.display = 'flex';
+}
+
+function renderMarkdownSimple(md) {
+  const esc = (s) => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const lines = String(md || '').split(/\r?\n/);
+  const out = [];
+  for (let line of lines) {
+    if (!line.trim()) { out.push(''); continue; }
+    // Bullet
+    if (/^\s*[-*]\s+/.test(line)) {
+      const text = esc(line.replace(/^\s*[-*]\s+/, ''));
+      out.push(`<li>${text}</li>`);
+      continue;
+    }
+    // Heading -> bold
+    if (/^\s*#+\s+/.test(line)) {
+      const t = esc(line.replace(/^\s*#+\s+/, ''));
+      out.push(`<div><b>${t}</b></div>`);
+      continue;
+    }
+    out.push(`<div>${esc(line)}</div>`);
+  }
+  // Wrap consecutive <li> into <ul>
+  const html = out.join('\n');
+  const wrapped = html.replace(/(?:\n|^)(<li>[^]*?<\/li>)(?=(?:\n(?!<li>)|$))/g, (m) => `<ul>${m.trim()}</ul>`);
+  return wrapped;
 }
 
 function onCcKeydown(e) {

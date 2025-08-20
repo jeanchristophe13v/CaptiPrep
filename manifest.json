@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CaptiPrep",
-  "version": "0.1.1",
+  "version": "1.0.0",
   "description": "Extract YouTube captions, filter key words/phrases with LLM, and generate study cards.",
   "icons": {
     "16": "icons/icon-16.png",
