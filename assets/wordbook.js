@@ -255,6 +255,17 @@ async function onDelete() {
 }
 
 async function onExport() {
+  // When on favorite-words tab, export the selected words' snapshots
+  if (state.tab === 'favWords') {
+    const selectedSet = new Set(state.selectedWordKeys);
+    const chosen = state.favWords.filter(w => selectedSet.has(wordKey(w)));
+    if (!chosen.length) return;
+    const cards = chosen.map(w => w.snapshot).filter(Boolean);
+    if (!cards.length) return;
+    exportCSV(cards, `favorites-${toYYYYMMDD(new Date())}`);
+    return;
+  }
+  // Otherwise export selected videos
   const ids = Array.from(state.selected);
   if (!ids.length) return;
   const all = await chrome.storage.local.get(null);
