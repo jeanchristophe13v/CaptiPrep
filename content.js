@@ -42,19 +42,25 @@ function getYouTubeVideoInfo() {
     if (paths[0] === 'shorts' && paths[1]) v = paths[1];
     if (!v && location.host.includes('youtu.be')) v = paths[0];
   }
-  // Robust title detection: prefer meta, then key DOM nodes, then document.title fallback
+  // Robust title detection: prefer visible H1 first (meta can lag on SPA navigation)
   const bad = (s) => !s || /^(untitled|\(untitled\)|youtube)$/i.test(String(s).trim());
   const pick = (...vals) => vals.find(t => !bad(t) && String(t).trim());
 
+  // Visible title in the watch page
+  const h1New = document.querySelector('ytd-watch-metadata h1 yt-formatted-string')?.textContent?.trim();
+  const h1Old = document.querySelector('h1.title, h1#title, h1')?.textContent?.trim();
+
+  // Meta tags (can be stale briefly during SPA navigation)
   const metaOg = document.querySelector('meta[property="og:title"]')?.content?.trim();
   const metaTw = document.querySelector('meta[name="twitter:title"]')?.content?.trim();
   const metaItem = document.querySelector('meta[itemprop="name"]')?.content?.trim();
-  const h1New = document.querySelector('ytd-watch-metadata h1 yt-formatted-string')?.textContent?.trim();
-  const h1Old = document.querySelector('h1.title, h1#title, h1')?.textContent?.trim();
+
+  // Document title fallback
   let dt = document.title || '';
   if (dt.endsWith(' - YouTube')) dt = dt.replace(/ - YouTube$/,'').trim();
 
-  const title = pick(metaOg, metaTw, metaItem, h1New, h1Old, dt) || '';
+  // Prefer H1 -> meta -> document.title
+  const title = pick(h1New, h1Old, metaOg, metaTw, metaItem, dt) || '';
   return { videoId: v, title };
 }
 
