@@ -306,7 +306,7 @@ async function openDetail(videoId, title) {
     grid.appendChild(card);
   }
   bindOverlayBasicClose();
-  setActiveKeyNav({ close: closeOverlay });
+  setActiveKeyNav({ close: closeOverlay, fav: () => { const b = el('#wb-fav-word'); if (b) b.click(); } });
 }
 
 function bindOverlayBasicClose() {
@@ -370,7 +370,12 @@ function openCardModal(cards, startIdx, ctx) {
         if (added) { btn.classList.add('cc-ok'); setTimeout(()=>btn.classList.remove('cc-ok'), 600); }
       }
     };
-    setActiveKeyNav({ prev: () => el('#wb2-prev').onclick(), next: () => el('#wb2-next').onclick(), close: closeCardOverlay });
+    setActiveKeyNav({
+      prev: () => el('#wb2-prev').onclick(),
+      next: () => el('#wb2-next').onclick(),
+      close: closeCardOverlay,
+      fav: () => { const b = el('#wb2-fav-word'); if (b) b.click(); }
+    });
   }
   // close behaviors
   const modal = overlay.querySelector('.wb-modal');
@@ -432,7 +437,12 @@ function openDetailWordPool(pool, current) {
         if (added) { btn.classList.add('cc-ok'); setTimeout(()=>btn.classList.remove('cc-ok'), 600); }
       }
     };
-    setActiveKeyNav({ prev: () => el('#wb-prev').onclick(), next: () => el('#wb-next').onclick(), close: closeOverlay });
+    setActiveKeyNav({
+      prev: () => el('#wb-prev').onclick(),
+      next: () => el('#wb-next').onclick(),
+      close: closeOverlay,
+      fav: () => { const b = el('#wb-fav-word'); if (b) b.click(); }
+    });
   }
   bindOverlayBasicClose();
   render();
@@ -568,4 +578,5 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') { e.preventDefault(); __activeKeyNav.close && __activeKeyNav.close(); return; }
   if (e.key === 'ArrowLeft') { e.preventDefault(); __activeKeyNav.prev && __activeKeyNav.prev(); return; }
   if (e.key === 'ArrowRight') { e.preventDefault(); __activeKeyNav.next && __activeKeyNav.next(); return; }
+  if (e.code === 'Space' || e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); __activeKeyNav.fav && __activeKeyNav.fav(); return; }
 });

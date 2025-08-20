@@ -6,6 +6,8 @@ const B = (globalThis.CaptiPrep && globalThis.CaptiPrep.backend) || {};
 // Simple UI state
 let modalOpen = false;
 let uiRoot = null;
+let buildWatchTimer = null; // polling to reflect background building status
+let selectWatchTimer = null; // polling to reflect background selecting status
 let currentState = {
   videoId: null,
   title: null,
@@ -44,6 +46,9 @@ function closeModal() {
   modalOpen = false;
   if (uiRoot) uiRoot.style.display = 'none';
   resumePausedVideos();
+  // stop background polling when panel is closed
+  try { if (buildWatchTimer) { clearInterval(buildWatchTimer); buildWatchTimer = null; } } catch {}
+  try { if (selectWatchTimer) { clearInterval(selectWatchTimer); selectWatchTimer = null; } } catch {}
 }
 
 async function createUI() {
@@ -177,6 +182,19 @@ function onCcKeydown(e) {
     closeModal();
     return;
   }
+  // Space toggles favorite on current card (when not editing inputs)
+  if (k === ' ' || k === 'Spacebar' || e.code === 'Space') {
+    const t2 = e.target;
+    const tag2 = (t2 && t2.tagName ? t2.tagName.toLowerCase() : '');
+    const isEditable2 = (tag2 === 'input' || tag2 === 'textarea' || (t2 && t2.isContentEditable));
+    if (isEditable2) return;
+    const cards = currentState.cards || [];
+    if (!cards.length || ccGridMode) return;
+    e.preventDefault();
+    e.stopPropagation();
+    try { const btn = uiRoot && uiRoot.querySelector('#cc-b-fav'); if (btn) btn.click(); } catch {}
+    return;
+  }
   if (k !== 'ArrowLeft' && k !== 'ArrowRight') return;
   const t = e.target;
   const tag = (t && t.tagName ? t.tagName.toLowerCase() : '');
@@ -213,6 +231,16 @@ async function bootFlow() {
     setStep(['Extract captions', 'Filter words', 'Build cards'], 3);
     return;
   }
+  // If background is currently building, keep UI in syncing state instead of restarting the pipeline
+  if (saved && saved.building && (saved.selected && saved.selected.length)) {
+    currentState.subtitlesText = saved.subtitlesText || null;
+    currentState.candidates = saved.candidates || null;
+    currentState.selected = saved.selected || null;
+    setStep(['Extract captions', 'Filter words', 'Build cards'], 3);
+    renderProgress('Generating study cards…');
+    startBuildWatcher();
+    return;
+  }
   startFlow();
 }
 
@@ -232,6 +260,50 @@ async function startFlow(forceRegenerate = false) {
         setStep(['Extract captions', 'Filter words', 'Build cards'], 3);
         return;
       }
+      // If previously started building, don't redo captions/selection; just reflect progress
+      if (saved && saved.building && (saved.selected && saved.selected.length)) {
+        currentState.subtitlesText = saved.subtitlesText || null;
+        currentState.candidates = saved.candidates || null;
+        currentState.selected = saved.selected || null;
+        setStep(['Extract captions', 'Filter words', 'Build cards'], 3);
+        renderProgress('Generating study cards…');
+        startBuildWatcher();
+        return;
+      }
+      // If candidates already exist and user hasn't selected yet, go directly to selection UI
+      if (saved && Array.isArray(saved.candidates) && saved.candidates.length && (!saved.selected || !saved.selected.length)) {
+        currentState.subtitlesText = saved.subtitlesText || null;
+        currentState.candidates = saved.candidates || [];
+        setStep(['Extract captions', 'Filter words', 'Build cards'], 2);
+        renderSelection();
+        return;
+      }
+      // If selecting is in progress, show filtering progress and watch for completion
+      if (saved && saved.selecting && saved.subtitlesText) {
+        currentState.subtitlesText = saved.subtitlesText;
+        setStep(['Extract captions', 'Filter words', 'Build cards'], 2);
+        renderProgress('Filtering words/phrases…');
+        startSelectWatcher();
+        return;
+      }
+      // If subtitles already extracted, skip extraction and continue to filtering
+      if (saved && saved.subtitlesText) {
+        currentState.subtitlesText = saved.subtitlesText;
+        setStep(['Extract captions', 'Filter words', 'Build cards'], 2);
+        renderProgress('Filtering words/phrases…');
+        await B.saveVideoData(currentState.videoId, { selecting: true });
+        try {
+          const resp = await B.llmCall('first', { subtitlesText: currentState.subtitlesText, maxItems: 60 });
+          currentState.candidates = resp.items || [];
+          await B.saveVideoData(currentState.videoId, { candidates: currentState.candidates, selecting: false });
+        } catch (e) {
+          await B.saveVideoData(currentState.videoId, { selecting: false });
+          throw e;
+        }
+        hideCenterOverlay();
+        renderSelection();
+        return;
+      }
     }
     const subtitlesText = await B.extractCaptionsText();
     currentState.subtitlesText = subtitlesText;
@@ -246,11 +318,13 @@ async function startFlow(forceRegenerate = false) {
   setStep(['Extract captions', 'Filter words', 'Build cards'], 2);
   renderProgress('Filtering words/phrases…');
   try {
+    await B.saveVideoData(currentState.videoId, { selecting: true });
     const resp = await B.llmCall('first', { subtitlesText: currentState.subtitlesText, maxItems: 60 });
     currentState.candidates = resp.items || [];
-    await B.saveVideoData(currentState.videoId, { candidates: currentState.candidates });
+    await B.saveVideoData(currentState.videoId, { candidates: currentState.candidates, selecting: false });
   } catch (e) {
     currentState.error = String(e?.message || e);
+    try { await B.saveVideoData(currentState.videoId, { selecting: false }); } catch {}
     renderError('LLM #1 error', currentState.error);
     return;
   }
@@ -413,17 +487,55 @@ async function buildCards() {
   setStep(['Extract captions', 'Filter words', 'Build cards'], 3);
   renderProgress('Generating study cards…');
   try {
+    // mark background building so UI can resume progress on reopen
+    await B.saveVideoData(currentState.videoId, { building: true });
     const resp = await B.llmCall('second', { selected: currentState.selected });
     currentState.cards = resp.cards || [];
     // 初次生成写入 createdAt（如果尚未存在）
     const saved = await B.loadVideoData(currentState.videoId) || {};
     const createdAt = saved.createdAt || formatDateYYYYMMDD(new Date());
-    await B.saveVideoData(currentState.videoId, { cards: currentState.cards, createdAt });
+    await B.saveVideoData(currentState.videoId, { cards: currentState.cards, createdAt, building: false });
     renderLearnView();
   } catch (e) {
     currentState.error = String(e?.message || e);
+    try { await B.saveVideoData(currentState.videoId, { building: false }); } catch {}
     renderError('LLM #2 error', currentState.error);
   }
+}
+
+function startBuildWatcher() {
+  try { if (buildWatchTimer) { clearInterval(buildWatchTimer); buildWatchTimer = null; } } catch {}
+  buildWatchTimer = setInterval(async () => {
+    if (!modalOpen) return; // if closed, we will clear on close
+    try {
+      const saved = await B.loadVideoData(currentState.videoId);
+      if (saved && saved.cards && saved.cards.length) {
+        clearInterval(buildWatchTimer);
+        buildWatchTimer = null;
+        currentState.cards = saved.cards;
+        renderLearnView();
+        setStep(['Extract captions', 'Filter words', 'Build cards'], 3);
+      }
+    } catch {}
+  }, 1500);
+}
+
+function startSelectWatcher() {
+  try { if (selectWatchTimer) { clearInterval(selectWatchTimer); selectWatchTimer = null; } } catch {}
+  selectWatchTimer = setInterval(async () => {
+    if (!modalOpen) return;
+    try {
+      const saved = await B.loadVideoData(currentState.videoId);
+      if (saved && Array.isArray(saved.candidates) && saved.candidates.length) {
+        clearInterval(selectWatchTimer);
+        selectWatchTimer = null;
+        currentState.candidates = saved.candidates;
+        hideCenterOverlay();
+        setStep(['Extract captions', 'Filter words', 'Build cards'], 2);
+        renderSelection();
+      }
+    } catch {}
+  }, 1200);
 }
 
 function renderLearnView() {
