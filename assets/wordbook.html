@@ -9,10 +9,13 @@
     body { margin:0; background:#fafafa; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial; }
     .wb { display:flex; height:100vh; }
     .wb-left { width:220px; border-right:3px solid #000; background:#fff; padding:16px 12px; display:flex; flex-direction:column; gap:12px; }
-    .wb-left .brand { display:flex; align-items:center; gap:10px; font-weight:800; }
-    .wb-left .brand .logo { width:28px; height:28px; background:url(../icon.png) center/contain no-repeat; }
-    .wb-nav { display:flex; flex-direction:column; gap:8px; margin-top:8px; }
+    /* Center nav buttons vertically within the sidebar */
+    .wb-nav { display:flex; flex-direction:column; gap:8px; margin-top:12px; }
     .wb-nav button { text-align:left; }
+    /* Brand: large logo stacked above title */
+    .wb-left .brand { display:flex; flex-direction:column; align-items:center; gap:10px; font-weight:800; }
+    .wb-left .brand .logo { width:min(160px, 80%); aspect-ratio:1/1; background:url(../icon.png) center/contain no-repeat; }
+    .wb-left .brand .logo + span { display:block; font-size:20px; line-height:1.1; text-align:center; }
     .wb-nav .active { background:#000; color:#fff; }
 
     .wb-right { flex:1; display:flex; flex-direction:column; }
