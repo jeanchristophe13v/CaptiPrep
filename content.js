@@ -42,8 +42,19 @@ function getYouTubeVideoInfo() {
     if (paths[0] === 'shorts' && paths[1]) v = paths[1];
     if (!v && location.host.includes('youtu.be')) v = paths[0];
   }
-  const titleEl = document.querySelector('h1.title, h1#title, h1');
-  const title = titleEl ? titleEl.textContent.trim() : document.title.replace(' - YouTube', '').trim();
+  // Robust title detection: prefer meta, then key DOM nodes, then document.title fallback
+  const bad = (s) => !s || /^(untitled|\(untitled\)|youtube)$/i.test(String(s).trim());
+  const pick = (...vals) => vals.find(t => !bad(t) && String(t).trim());
+
+  const metaOg = document.querySelector('meta[property="og:title"]')?.content?.trim();
+  const metaTw = document.querySelector('meta[name="twitter:title"]')?.content?.trim();
+  const metaItem = document.querySelector('meta[itemprop="name"]')?.content?.trim();
+  const h1New = document.querySelector('ytd-watch-metadata h1 yt-formatted-string')?.textContent?.trim();
+  const h1Old = document.querySelector('h1.title, h1#title, h1')?.textContent?.trim();
+  let dt = document.title || '';
+  if (dt.endsWith(' - YouTube')) dt = dt.replace(/ - YouTube$/,'').trim();
+
+  const title = pick(metaOg, metaTw, metaItem, h1New, h1Old, dt) || '';
   return { videoId: v, title };
 }
 

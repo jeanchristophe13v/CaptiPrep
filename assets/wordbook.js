@@ -1,0 +1,425 @@
+// Wordbook page script (runs in extension tab)
+
+const CC_NS = 'CCAPTIPREPS';
+const KEY_VIDEOS = `${CC_NS}:video:`; // prefix
+const KEY_FAV_VIDEOS = `${CC_NS}:fav:videos`;
+const KEY_FAV_WORDS = `${CC_NS}:fav:words`;
+
+const el = (sel) => document.querySelector(sel);
+
+const state = {
+  tab: 'history',
+  items: [], // history: [{videoId,title,createdAt,words:[...] }]
+  selected: new Set(),
+  favVideos: new Set(),
+  favWords: [],
+};
+
+init();
+
+async function init() {
+  await loadFavs();
+  await loadHistory();
+  bindNav();
+  bindToolbar();
+  render();
+}
+
+function bindNav() {
+  document.querySelectorAll('.wb-nav button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tab = btn.getAttribute('data-tab');
+      state.tab = tab;
+      document.querySelectorAll('.wb-nav button').forEach(b=>b.classList.toggle('active', b===btn));
+      el('#wb-current-title').textContent = btn.textContent;
+      transitionPane(() => render());
+    });
+  });
+}
+
+function bindToolbar() {
+  el('#wb-select-all').addEventListener('click', () => {
+    const ids = currentList().map(v => v.videoId || v.id);
+    const allSelected = ids.every(id => state.selected.has(id));
+    if (allSelected) ids.forEach(id => state.selected.delete(id));
+    else ids.forEach(id => state.selected.add(id));
+    render();
+  });
+  el('#wb-delete').addEventListener('click', onDelete);
+  el('#wb-fav').addEventListener('click', onFavVideos);
+  el('#wb-export').addEventListener('click', onExport);
+}
+
+function transitionPane(fn) {
+  const pane = el('#wb-pane');
+  pane.classList.add('enter');
+  fn();
+  requestAnimationFrame(()=>{
+    pane.classList.add('enter-active');
+    setTimeout(()=>{ pane.classList.remove('enter'); pane.classList.remove('enter-active'); }, 180);
+  });
+}
+
+async function loadFavs() {
+  const o1 = await chrome.storage.local.get(KEY_FAV_VIDEOS);
+  const vset = Array.isArray(o1[KEY_FAV_VIDEOS]) ? new Set(o1[KEY_FAV_VIDEOS]) : new Set();
+  state.favVideos = vset;
+  const o2 = await chrome.storage.local.get(KEY_FAV_WORDS);
+  state.favWords = Array.isArray(o2[KEY_FAV_WORDS]) ? o2[KEY_FAV_WORDS] : [];
+}
+
+async function loadHistory() {
+  const all = await chrome.storage.local.get(null);
+  const entries = Object.keys(all).filter(k => k.startsWith(KEY_VIDEOS));
+  const out = [];
+  for (const k of entries) {
+    const data = all[k] || {};
+    if (!data.cards || !data.cards.length) continue;
+    const videoId = k.slice(KEY_VIDEOS.length);
+    const title = safeTitle(data.title) || videoId;
+    const createdAt = data.createdAt || toYYYYMMDD(new Date(data.__ts || Date.now()));
+    const words = (data.selected || data.cards || []).map(it => (it.term || it)).slice(0, 30);
+    out.push({ videoId, title, createdAt, words });
+  }
+  // group by date
+  out.sort((a,b) => (a.createdAt < b.createdAt ? 1 : -1));
+  state.items = out;
+}
+
+function currentList() {
+  if (state.tab === 'history') return state.items;
+  if (state.tab === 'favVideos') return state.items.filter(it => state.favVideos.has(it.videoId));
+  if (state.tab === 'favWords') return state.favWords; // different shape
+  return [];
+}
+
+function render() {
+  const pane = el('#wb-pane');
+  pane.innerHTML = '';
+  if (state.tab === 'favWords') {
+    renderFavWords(pane);
+    return;
+  }
+  // history / favVideos
+  const groups = groupByDate(currentList());
+  for (const [date, list] of groups) {
+    const sec = document.createElement('div'); sec.className = 'wb-section';
+    const h = document.createElement('div'); h.className = 'wb-date'; h.textContent = date; sec.appendChild(h);
+    const grid = document.createElement('div'); grid.className = 'wb-grid';
+    for (const item of list) grid.appendChild(renderVideoCard(item));
+    sec.appendChild(grid);
+    pane.appendChild(sec);
+  }
+}
+
+function groupByDate(list) {
+  const map = new Map();
+  for (const it of list) {
+    const d = it.createdAt || toYYYYMMDD(new Date());
+    if (!map.has(d)) map.set(d, []);
+    map.get(d).push(it);
+  }
+  return map;
+}
+
+function renderVideoCard(item) {
+  const card = document.createElement('div'); card.className = 'wb-vcard';
+  const id = item.videoId;
+  const checked = state.selected.has(id);
+  const isFav = state.favVideos.has(id);
+  card.innerHTML = `
+    <div class="chk wb-icon" data-act="select" aria-pressed="${checked}">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+    </div>
+    <div class="fav wb-icon ${isFav ? 'active':''}" data-act="fav">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+    </div>
+    <div class="left">
+      <div class="cover"><img alt="cover" data-id="${id}"/></div>
+      <div class="title">${escapeHtml(item.title)}</div>
+    </div>
+    <div class="right">
+      <div class="terms">
+        ${item.words.map(w => `<div class="term-item">${escapeHtml(typeof w === 'string' ? w : (w.term || ''))}</div>`).join('')}
+        <div class="fade"></div>
+      </div>
+    </div>
+  `;
+  // cover
+  const img = card.querySelector('img');
+  setCover(img, id);
+  // clicks
+  card.addEventListener('click', (e) => {
+    const act = e.target.closest('[data-act]')?.getAttribute('data-act');
+    if (act === 'select') {
+      if (checked) state.selected.delete(id); else state.selected.add(id);
+      render();
+      e.stopPropagation();
+      return;
+    }
+    if (act === 'fav') {
+      toggleFavVideo(id).then(()=>{ render(); });
+      e.stopPropagation();
+      return;
+    }
+    openDetail(item.videoId, item.title);
+  });
+  return card;
+}
+
+function renderFavWords(pane) {
+  if (!state.favWords.length) { pane.innerHTML = '<div class="cc-card">暂无收藏单词</div>'; return; }
+  const groups = groupByDateFavWords(state.favWords);
+  for (const [date, list] of groups) {
+    const sec = document.createElement('div'); sec.className = 'wb-section';
+    const h = document.createElement('div'); h.className = 'wb-date'; h.textContent = date; sec.appendChild(h);
+    const grid = document.createElement('div'); grid.className = 'wb-card-grid';
+    for (const w of list) {
+      const c = document.createElement('div'); c.className = 'cc-card';
+      c.innerHTML = `<div><b>${escapeHtml(w.snapshot.term||'')}</b></div>
+      <div class="cc-small">${escapeHtml(w.snapshot.pos||'')}</div>
+      <div>${escapeHtml(w.snapshot.definition||'')}</div>`;
+      c.style.cursor = 'pointer';
+      c.addEventListener('click', () => openDetailWordPool(list, w));
+      grid.appendChild(c);
+    }
+    sec.appendChild(grid);
+    pane.appendChild(sec);
+  }
+}
+
+function groupByDateFavWords(list) {
+  const map = new Map();
+  for (const it of list) {
+    const d = toYYYYMMDD(new Date(it.savedAt || Date.now()));
+    if (!map.has(d)) map.set(d, []);
+    map.get(d).push(it);
+  }
+  return map;
+}
+
+async function toggleFavVideo(videoId) {
+  const list = Array.from(state.favVideos);
+  const idx = list.indexOf(videoId);
+  if (idx >= 0) list.splice(idx,1); else list.push(videoId);
+  await chrome.storage.local.set({ [KEY_FAV_VIDEOS]: list });
+  state.favVideos = new Set(list);
+}
+
+async function onDelete() {
+  const ids = Array.from(state.selected);
+  if (!ids.length) return;
+  const all = await chrome.storage.local.get(null);
+  for (const id of ids) {
+    const key = KEY_VIDEOS + id;
+    await chrome.storage.local.remove(key);
+  }
+  state.selected.clear();
+  await loadHistory();
+  render();
+}
+
+async function onFavVideos() {
+  const ids = Array.from(state.selected);
+  if (!ids.length) return;
+  for (const id of ids) await toggleFavVideo(id);
+  render();
+}
+
+async function onExport() {
+  const ids = Array.from(state.selected);
+  if (!ids.length) return;
+  const all = await chrome.storage.local.get(null);
+  for (const id of ids) {
+    const data = all[KEY_VIDEOS + id];
+    if (!data || !data.cards || !data.cards.length) continue;
+    exportCSV(data.cards, data.title || id);
+  }
+}
+
+function exportCSV(cards, title) {
+  const rows = [['term', 'ipa', 'pos', 'definition', 'notes', 'examples']]
+    .concat(cards.map(c => [
+      c.term||'', c.ipa||'', c.pos||'', c.definition||'', c.notes||'', (c.examples||[]).join('\n\n')
+    ]))
+    .map(r => r.map(cell => '"' + String(cell).replace(/"/g, '""') + '"').join(','))
+    .join('\r\n');
+  const blob = new Blob(['\ufeff' + rows], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = sanitize(title) + '.csv';
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
+
+async function openDetail(videoId, title) {
+  const key = KEY_VIDEOS + videoId;
+  const o = await chrome.storage.local.get(key);
+  const data = o[key] || {};
+  const cards = data.cards || [];
+  const overlay = el('#wb-overlay');
+  const grid = el('#wb-card-grid');
+  el('#wb-m-title').textContent = title;
+  const img = el('#wb-m-img'); setCover(img, videoId);
+  overlay.style.display = 'flex';
+  grid.innerHTML = '';
+  for (let i=0;i<cards.length;i++) {
+    const c = cards[i];
+    const card = document.createElement('div'); card.className = 'cc-card';
+    card.innerHTML = `<div><b>${escapeHtml(c.term||'')}</b></div>
+      <div class="cc-small">${escapeHtml(c.pos||'')}</div>
+      <div>${escapeHtml(c.definition||'')}</div>`;
+    card.style.cursor = 'pointer';
+    card.addEventListener('click', () => openBigCard(cards, i, { videoId, title }));
+    grid.appendChild(card);
+  }
+  bindOverlayBasicClose();
+}
+
+function bindOverlayBasicClose() {
+  const overlay = el('#wb-overlay');
+  const close = el('#wb-close');
+  const modal = overlay.querySelector('.wb-modal');
+  function onBg(e){ if (!modal.contains(e.target)) closeOverlay(); }
+  overlay.addEventListener('mousedown', onBg, { once:true });
+  close.addEventListener('click', closeOverlay, { once:true });
+}
+
+function closeOverlay(){ el('#wb-overlay').style.display = 'none'; el('#wb-bottom').style.display = 'none'; }
+
+function openBigCard(cards, idx, ctx) {
+  const overlay = el('#wb-overlay');
+  const body = overlay.querySelector('.wb-m-body');
+  const bottom = el('#wb-bottom');
+  let edit = false;
+
+  function render() {
+    // render big card into a single cc-card.cc-large appended at top of body
+    let container = body.querySelector('.cc-card.cc-large');
+    if (!container) { container = document.createElement('div'); container.className = 'cc-card cc-large'; body.insertBefore(container, body.firstChild.nextSibling); }
+    container.innerHTML = edit ? renderCardEditor(cards[idx]) : renderCardView(cards[idx]);
+    bottom.style.display = 'flex';
+    // bind buttons
+    el('#wb-prev').onclick = () => { idx = (idx - 1 + cards.length) % cards.length; edit=false; render(); };
+    el('#wb-next').onclick = () => { idx = (idx + 1) % cards.length; edit=false; render(); };
+    el('#wb-edit').onclick = () => { edit = !edit; render(); };
+    el('#wb-save').onclick = async () => {
+      if (!edit) return;
+      const edited = readCardEditor();
+      cards[idx] = edited;
+      await saveCardsForVideo(ctx.videoId, cards);
+      edit = false; render();
+    };
+    el('#wb-save').disabled = !edit;
+    el('#wb-fav-word').onclick = async () => {
+      await addFavoriteWordSnapshot({ videoId: ctx.videoId, title: ctx.title, cardIndex: idx, snapshot: cards[idx] });
+      const btn = el('#wb-fav-word'); if (btn) { btn.classList.add('cc-ok'); setTimeout(()=>btn.classList.remove('cc-ok'), 600); }
+    };
+  }
+  render();
+}
+
+function openDetailWordPool(pool, current) {
+  const overlay = el('#wb-overlay');
+  const body = overlay.querySelector('.wb-m-body');
+  const bottom = el('#wb-bottom');
+  let idx = pool.indexOf(current);
+  let edit = false;
+  overlay.style.display = 'flex';
+  // set title and cover from current
+  el('#wb-m-title').textContent = current.title || current.snapshot?.term || '';
+  setCover(el('#wb-m-img'), current.videoId);
+  function render() {
+    let container = body.querySelector('.cc-card.cc-large');
+    if (!container) { container = document.createElement('div'); container.className = 'cc-card cc-large'; body.insertBefore(container, body.firstChild.nextSibling); }
+    const card = pool[idx].snapshot;
+    container.innerHTML = edit ? renderCardEditor(card) : renderCardView(card);
+    bottom.style.display = 'flex';
+    el('#wb-prev').onclick = () => { idx = (idx - 1 + pool.length) % pool.length; edit=false; render(); };
+    el('#wb-next').onclick = () => { idx = (idx + 1) % pool.length; edit=false; render(); };
+    el('#wb-edit').onclick = () => { edit = !edit; render(); };
+    el('#wb-save').onclick = async () => {
+      if (!edit) return;
+      const edited = readCardEditor();
+      // update snapshot in storage
+      pool[idx].snapshot = edited;
+      await chrome.storage.local.set({ [KEY_FAV_WORDS]: pool });
+      edit = false; render();
+    };
+    el('#wb-save').disabled = !edit;
+    el('#wb-fav-word').onclick = async () => {
+      // re-fav just adds another snapshot entry
+      const item = pool[idx];
+      await addFavoriteWordSnapshot({ videoId: item.videoId, title: item.title, cardIndex: item.cardIndex, snapshot: item.snapshot });
+      const btn = el('#wb-fav-word'); if (btn) { btn.classList.add('cc-ok'); setTimeout(()=>btn.classList.remove('cc-ok'), 600); }
+    };
+  }
+  bindOverlayBasicClose();
+  render();
+}
+
+function setCover(imgEl, videoId) {
+  const max = `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/maxresdefault.jpg`;
+  const hq = `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/hqdefault.jpg`;
+  imgEl.src = max;
+  imgEl.onerror = () => { if (imgEl.src !== hq) imgEl.src = hq; };
+}
+
+function toYYYYMMDD(d){ const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${day}`; }
+function sanitize(s){ return String(s||'export').replace(/[\\/:*?"<>|]/g, '_'); }
+function safeTitle(t){ const s = String(t||'').trim(); if (!s || s.toLowerCase()==='(untitled)' || s.toLowerCase()==='untitled') return ''; return s; }
+function escapeHtml(s){ return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+// Shared big card renderer/editor (minimal duplication of ui.js)
+function renderCardView(card) {
+  const c = { term: '', ipa: '', pos: '', definition: '', examples: [], notes: '', ...card };
+  const ipa = (c.ipa||'').replace(/^\/+|\/+$/g, '');
+  const ex = (c.examples||[]).slice(0,2).map(raw => {
+    const lines = String(raw).split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+    const en = lines[0]||''; const zh = lines[1]||'';
+    return `<blockquote><div>${escapeHtml(en)}</div>${zh?`<div class="cc-small">${escapeHtml(zh)}</div>`:''}</blockquote>`;
+  }).join('');
+  return `
+    <div class="cc-view">
+      <div class="term">${escapeHtml(c.term)}</div>
+      <div class="meta">${ipa?`/${escapeHtml(ipa)}/`:''} ${c.pos?`· ${escapeHtml(c.pos)}`:''}</div>
+      <div class="definition">${escapeHtml(c.definition||'')}</div>
+      ${ex?`<div class="examples-quote">${ex}</div>`:''}
+      ${c.notes?`<div class="notes">${escapeHtml(c.notes)}</div>`:''}
+    </div>`;
+}
+function renderCardEditor(card){
+  const c = { term:'', ipa:'', pos:'', definition:'', examples:[], notes:'', ...card };
+  return `
+    <div class="cc-editor">
+      <label>Term</label><input class="cc-input" id="cc-term" value="${escapeAttr(c.term)}"/>
+      <label>IPA</label><input class="cc-input" id="cc-ipa" value="${escapeAttr(c.ipa)}"/>
+      <label>POS</label><input class="cc-input" id="cc-pos" value="${escapeAttr(c.pos)}"/>
+      <label>Definition</label><input class="cc-input" id="cc-def" value="${escapeAttr(c.definition)}"/>
+      <label>Examples</label><textarea class="cc-input ex" id="cc-ex" rows="6">${escapeHtml((c.examples||[]).join('\n\n'))}</textarea>
+      <label>Notes</label><textarea class="cc-input notes" id="cc-notes" rows="4">${escapeHtml(c.notes||'')}</textarea>
+    </div>`;
+}
+function readCardEditor(){
+  const term = document.getElementById('cc-term').value.trim();
+  const ipa = document.getElementById('cc-ipa').value.trim();
+  const pos = document.getElementById('cc-pos').value.trim();
+  const definition = document.getElementById('cc-def').value.trim();
+  const raw = document.getElementById('cc-ex').value;
+  const examples = raw.split(/\r?\n\s*\r?\n/).map(b=>b.replace(/\s+$/,'').replace(/^\s+/,'')).filter(Boolean);
+  const notes = document.getElementById('cc-notes').value.trim();
+  return { term, ipa, pos, definition, examples, notes };
+}
+function escapeAttr(s){ return String(s).replace(/["&<>]/g, c => ({'"':'&quot;','&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+async function saveCardsForVideo(videoId, cards){
+  const key = KEY_VIDEOS + videoId;
+  const o = await chrome.storage.local.get(key);
+  const cur = o[key] || {};
+  await chrome.storage.local.set({ [key]: { ...cur, cards } });
+}
+
+async function addFavoriteWordSnapshot({ videoId, title, cardIndex, snapshot }){
+  const o = await chrome.storage.local.get(KEY_FAV_WORDS);
+  const list = Array.isArray(o[KEY_FAV_WORDS]) ? o[KEY_FAV_WORDS] : [];
+  list.push({ videoId, title, cardIndex, snapshot, savedAt: new Date().toISOString() });
+  await chrome.storage.local.set({ [KEY_FAV_WORDS]: list });
+}

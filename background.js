@@ -74,6 +74,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     });
     return true;
   }
+  if (msg && msg.type === 'CC_OPEN_WORDBOOK') {
+    (async () => {
+      try {
+        const url = chrome.runtime.getURL('assets/wordbook.html');
+        await chrome.tabs.create({ url });
+        sendResponse({ ok: true });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e && e.message || e) });
+      }
+    })();
+    return true;
+  }
   if (msg && msg.type === 'CC_GET_SETTINGS') {
     (async () => {
       const s = await getSettings();
@@ -138,7 +150,7 @@ async function handleLLMCall(payload) {
     : (settings.modelSecond || settings.model);
 
   // Sampling per role
-  const temperature = role === 'first' ? 0 : 0.6;
+  const temperature = role === 'first' ? 0 : 0.4;
   const topP = 1;
 
   const text = await callProvider({ provider, baseUrl, apiKey, model, prompt: prompts.prompt, temperature, topP });

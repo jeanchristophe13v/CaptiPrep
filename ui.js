@@ -104,6 +104,10 @@ async function createUI() {
     updateViewToggleButton();
     updateBottomControls();
   });
+  // 新增：单词本入口
+  uiRoot.querySelector('#cc-wordbook')?.addEventListener('click', () => {
+    chrome.runtime.sendMessage({ type: 'CC_OPEN_WORDBOOK' });
+  });
 
   // 底部控制条
   uiRoot.querySelector('#cc-b-prev')?.addEventListener('click', () => {
@@ -134,6 +138,28 @@ async function createUI() {
     await B.saveVideoData(currentState.videoId, { cards });
     ccEditMode = false;
     renderLearnView();
+  });
+  // 新增：收藏当前词卡（快照）
+  uiRoot.querySelector('#cc-b-fav')?.addEventListener('click', async () => {
+    const cards = currentState.cards || [];
+    if (!cards.length || ccGridMode) return;
+    const card = cards[currentCardIndex];
+    try {
+      await addFavoriteWordSnapshot({
+        videoId: currentState.videoId,
+        title: currentState.title,
+        cardIndex: currentCardIndex,
+        snapshot: card
+      });
+      // 简易反馈
+      const btn = uiRoot.querySelector('#cc-b-fav');
+      if (btn) {
+        btn.classList.add('cc-ok');
+        setTimeout(() => btn.classList.remove('cc-ok'), 600);
+      }
+    } catch (e) {
+      console.warn('favorite failed', e);
+    }
   });
 
   // 键盘快捷：左右箭头
@@ -200,7 +226,8 @@ async function startFlow(forceRegenerate = false) {
     }
     const subtitlesText = await B.extractCaptionsText();
     currentState.subtitlesText = subtitlesText;
-    await B.saveVideoData(currentState.videoId, { subtitlesText, title });
+    const createdAt = formatDateYYYYMMDD(new Date());
+    await B.saveVideoData(currentState.videoId, { subtitlesText, title, createdAt });
   } catch (e) {
     currentState.error = String(e?.message || e);
     renderError('Captions error', currentState.error);
@@ -377,7 +404,10 @@ async function buildCards() {
   try {
     const resp = await B.llmCall('second', { selected: currentState.selected });
     currentState.cards = resp.cards || [];
-    await B.saveVideoData(currentState.videoId, { cards: currentState.cards });
+    // 初次生成写入 createdAt（如果尚未存在）
+    const saved = await B.loadVideoData(currentState.videoId) || {};
+    const createdAt = saved.createdAt || formatDateYYYYMMDD(new Date());
+    await B.saveVideoData(currentState.videoId, { cards: currentState.cards, createdAt });
     renderLearnView();
   } catch (e) {
     currentState.error = String(e?.message || e);
@@ -510,8 +540,11 @@ async function deleteAllForThisVideo() {
 async function exportCSV() {
   const cards = currentState.cards || [];
   if (!cards.length) return;
-  const rows = [['term', 'ipa', 'pos', 'definition', 'notes']]
-    .concat(cards.map(c => [c.term||'', c.ipa||'', c.pos||'', c.definition||'', c.notes||'']))
+  const rows = [['term', 'ipa', 'pos', 'definition', 'notes', 'examples']]
+    .concat(cards.map(c => {
+      const examples = (c.examples || []).join('\n\n');
+      return [c.term||'', c.ipa||'', c.pos||'', c.definition||'', c.notes||'', examples];
+    }))
     .map(r => r.map(cell => '"' + String(cell).replace(/"/g, '""') + '"').join(','))
     .join('\r\n');
   const csv = '\ufeff' + rows;
@@ -562,6 +595,27 @@ function pauseActiveVideo() {
 function resumePausedVideos() {
   try { __ccPausedVideos.forEach(v => { try { v.play(); } catch {} }); } catch {}
   __ccPausedVideos.clear();
+}
+
+function formatDateYYYYMMDD(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+
+// Favorites storage helpers (word snapshots)
+async function addFavoriteWordSnapshot({ videoId, title, cardIndex, snapshot }) {
+  try {
+    const key = 'CCAPTIPREPS:fav:words';
+    const data = await chrome.storage.local.get(key);
+    const list = Array.isArray(data[key]) ? data[key] : [];
+    const savedAt = new Date().toISOString();
+    const item = { videoId, title, cardIndex, snapshot, savedAt };
+    list.push(item);
+    await chrome.storage.local.set({ [key]: list });
+    return true;
+  } catch (e) { throw e; }
 }
 
 // Icons
