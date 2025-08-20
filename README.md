@@ -1,12 +1,10 @@
-# CaptiPrep
-
 <h1 align="center">
   <strong>CaptiPrep - Your AI-Powered Language Learning Assistant</strong>
 </h1>
 
 <p align="center">
   <a href="https://github.com/jeanchristophe13v/CaptiPrep"> 
-    <img src="magic.png?raw=true" alt="CaptiPrep Icon" title="CaptiPrep Icon" width="250">
+    <img src="icon.png?raw=true" alt="CaptiPrep Icon" title="CaptiPrep Icon" width="250">
   </a>
 </p>
 
