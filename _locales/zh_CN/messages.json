@@ -83,6 +83,8 @@
   "options_label_model_second": { "message": "卡片制作（LLM #2）" },
   "options_placeholder_model": { "message": "输入或选择模型…" },
   "options_test": { "message": "测试" },
+  "options_show_api_key": { "message": "显示" },
+  "options_hide_api_key": { "message": "隐藏" },
 
   "status_saving": { "message": "正在保存…" },
   "status_saved": { "message": "已保存 ✅" },
@@ -99,7 +101,6 @@
   "options_ui_lang_auto": { "message": "跟随浏览器" },
   "options_ui_lang_en": { "message": "英文" },
   "options_ui_lang_zh_cn": { "message": "简体中文" },
-  "options_ui_lang_zh_tw": { "message": "繁體中文" },
 
   "wordbook_title": { "message": "CaptiPrep · 单词本" },
   "wordbook_nav_history": { "message": "历史记录" },

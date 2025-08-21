@@ -83,6 +83,8 @@
   "options_label_model_second": { "message": "Card generation (LLM #2)" },
   "options_placeholder_model": { "message": "Type or pick a model…" },
   "options_test": { "message": "Test" },
+  "options_show_api_key": { "message": "Show" },
+  "options_hide_api_key": { "message": "Hide" },
 
   "status_saving": { "message": "Saving…" },
   "status_saved": { "message": "Saved ✅" },
@@ -99,7 +101,6 @@
   "options_ui_lang_auto": { "message": "Follow browser" },
   "options_ui_lang_en": { "message": "English" },
   "options_ui_lang_zh_cn": { "message": "Simplified Chinese" },
-  "options_ui_lang_zh_tw": { "message": "Traditional Chinese" },
 
   "wordbook_title": { "message": "CaptiPrep · Wordbook" },
   "wordbook_nav_history": { "message": "History" },

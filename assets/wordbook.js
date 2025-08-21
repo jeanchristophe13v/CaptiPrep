@@ -18,7 +18,7 @@ function applyI18nPlaceholders(root = document) {
     const v = (__i18nDict && __i18nDict[key]) || ((chrome.i18n && chrome.i18n.getMessage) ? chrome.i18n.getMessage(key) : '');
     return v || null;
   };
-  const ATTRS = ['title', 'placeholder', 'aria-label'];
+  const ATTRS = ['title', 'placeholder', 'aria-label', 'alt'];
   const all = root.querySelectorAll('*');
   all.forEach(el => {
     ATTRS.forEach(attr => {
@@ -55,7 +55,6 @@ const state = {
   try {
     const store = await chrome.storage.local.get('settings');
     let lang = (store && store.settings && store.settings.uiLang) || 'auto';
-    if (lang === 'zh_TW') lang = 'zh_CN';
     if (lang && lang !== 'auto') {
       const url = chrome.runtime.getURL(`assets/i18n/${lang}.json`);
       const res = await fetch(url);
@@ -63,6 +62,7 @@ const state = {
     }
   } catch {}
   try { applyI18nPlaceholders(document); } catch {}
+  try { if (__i18nDict && __i18nDict.wordbook_title) document.title = __i18nDict.wordbook_title; } catch {}
   init();
 })();
 

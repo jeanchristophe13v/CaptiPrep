@@ -35,6 +35,11 @@
     .btn-white { background:#fff; color:#000; border:2px solid #000; padding:8px 12px; cursor:pointer; box-shadow: 2px 2px #000; }
     .btn-white:hover { transform: translate(-1px, -1px); box-shadow: 3px 3px #000; }
     .btn-white:disabled { opacity:.6; cursor:not-allowed; }
+    /* Icon-only svg toggle */
+    #apiKeyEye { width:22px; height:22px; cursor:pointer; align-self:center; -webkit-tap-highlight-color: transparent; }
+    #apiKeyEye path { fill: currentColor; }
+    #apiKeyEye:focus { outline: none; }
+    #apiKeyEye:focus-visible { outline: none; }
 
     .actions { display:flex; gap:12px; align-items:center; justify-content:flex-end; width:100%; }
 
@@ -80,21 +85,7 @@
       </div>
     </div>
 
-    <section class="card">
-      <div class="card-hd">
-        <div class="card-tt" data-i18n="options_section_language">__MSG_options_section_language__</div>
-      </div>
-      <div class="card-bd">
-        <div class="row">
-          <label for="uiLang" data-i18n="options_label_ui_lang">__MSG_options_label_ui_lang__</label>
-          <select id="uiLang" class="w-1-3">
-            <option value="auto" data-i18n="options_ui_lang_auto">__MSG_options_ui_lang_auto__</option>
-            <option value="en" data-i18n="options_ui_lang_en">__MSG_options_ui_lang_en__</option>
-            <option value="zh_CN" data-i18n="options_ui_lang_zh_cn">__MSG_options_ui_lang_zh_cn__</option>
-          </select>
-        </div>
-      </div>
-    </section>
+    
 
     <section class="card">
       <div class="card-hd">
@@ -117,7 +108,15 @@
         </div>
         <div class="row">
           <label for="apiKey" data-i18n="options_label_api_key">__MSG_options_label_api_key__</label>
-          <input id="apiKey" placeholder="__MSG_options_placeholder_api_key__" data-i18n-placeholder="options_placeholder_api_key" />
+          <div class="model-line">
+            <div class="model-field">
+              <input id="apiKey" type="password" placeholder="__MSG_options_placeholder_api_key__" data-i18n-placeholder="options_placeholder_api_key" />
+            </div>
+            <!-- Single SVG icon; JS swaps path for open/closed eye -->
+            <svg id="apiKeyEye" viewBox="0 0 24 24" role="button" tabindex="0" aria-label="Show API Key">
+              <path d="M12 5c-5 0-9 4-10 7 1 3 5 7 10 7s9-4 10-7c-1-3-5-7-10-7zm0 12a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-2.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"></path>
+            </svg>
+          </div>
         </div>
         <div class="row">
           <label data-i18n="options_label_accent">__MSG_options_label_accent__</label>
@@ -163,6 +162,23 @@
             </div>
             <button class="btn-white" id="testSecond" data-i18n="options_test">__MSG_options_test__</button>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Moved Language section to bottom -->
+    <section class="card">
+      <div class="card-hd">
+        <div class="card-tt" data-i18n="options_section_language">__MSG_options_section_language__</div>
+      </div>
+      <div class="card-bd">
+        <div class="row">
+          <label for="uiLang" data-i18n="options_label_ui_lang">__MSG_options_label_ui_lang__</label>
+          <select id="uiLang" class="w-1-3">
+            <option value="auto" data-i18n="options_ui_lang_auto">__MSG_options_ui_lang_auto__</option>
+            <option value="en" data-i18n="options_ui_lang_en">__MSG_options_ui_lang_en__</option>
+            <option value="zh_CN" data-i18n="options_ui_lang_zh_cn">__MSG_options_ui_lang_zh_cn__</option>
+          </select>
         </div>
       </div>
     </section>

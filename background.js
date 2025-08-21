@@ -12,7 +12,7 @@ const DEFAULT_SETTINGS = {
   accent: 'us', // 'us' or 'uk'
   // New: definition/notes language for cards ('en' | 'zh')
   glossLang: 'en',
-  // UI language override: 'auto' | 'en' | 'zh_CN' | 'zh_TW'
+  // UI language override: 'auto' | 'en' | 'zh_CN'
   uiLang: 'auto'
 };
 

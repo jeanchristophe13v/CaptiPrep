@@ -57,7 +57,6 @@ async function load() {
   const uiLangSel = document.getElementById('uiLang');
   if (uiLangSel) {
     let v = s.uiLang || 'auto';
-    if (v === 'zh_TW') v = 'zh_CN';
     const has = Array.from(uiLangSel.options).some(o => o.value === v);
     uiLangSel.value = has ? v : 'auto';
   }
@@ -270,6 +269,39 @@ function wirePerModelTests() {
   document.getElementById('testSecond')?.addEventListener('click', () => testModel(document.getElementById('modelSecond').value.trim()));
 }
 
+function updateApiKeyIcon() {
+  const input = document.getElementById('apiKey');
+  const icon = document.getElementById('apiKeyEye');
+  if (!input || !icon) return;
+  const show = input.type === 'password'; // hidden -> show eye open
+  const path = icon.querySelector('path');
+  if (!path) return;
+  const EYE_OPEN = "M12 5c-5 0-9 4-10 7 1 3 5 7 10 7s9-4 10-7c-1-3-5-7-10-7zm0 12a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-2.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z";
+  const EYE_OFF = "M3 4.27 4.28 3 21 19.72 19.73 21l-2.25-2.25C15.9 19.24 14 20 12 20 7 20 3 16 2 13c.46-1.39 1.57-3.06 3.14-4.55L3 6.73 4.27 5.5 6.1 7.33A11.9 11.9 0 0 1 12 6c5 0 9 4 10 7-.44 1.33-1.47 2.94-2.95 4.42L15.5 13.9A5 5 0 0 0 10.1 8.5L7.73 6.12 6.5 7.35l2.15 2.15A5 5 0 0 0 8 12a5 5 0 0 0 5 5c.5 0 .98-.07 1.43-.21l1.57 1.57L15.73 19 3 6.27V4.27z";
+  path.setAttribute('d', show ? EYE_OPEN : EYE_OFF);
+  icon.removeAttribute('title'); // no hover label
+  icon.setAttribute('aria-label', show ? t('options_show_api_key') : t('options_hide_api_key'));
+}
+
+function wireApiKeyToggle() {
+  const input = document.getElementById('apiKey');
+  const icon = document.getElementById('apiKeyEye');
+  if (!input || !icon) return;
+  updateApiKeyIcon();
+  const toggle = (e) => {
+    if (e) e.preventDefault();
+    input.type = input.type === 'password' ? 'text' : 'password';
+    updateApiKeyIcon();
+  };
+  // Prevent focus on mouse/touch to avoid persistent blue ring
+  icon.addEventListener('pointerdown', (e) => { try { e.preventDefault(); } catch {} });
+  icon.addEventListener('mousedown', (e) => { try { e.preventDefault(); } catch {} });
+  icon.addEventListener('click', toggle);
+  icon.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') toggle(e);
+  });
+}
+
 function applyI18nPlaceholders(root = document, dict) {
   const getMsg = (raw) => {
     const m = /^__MSG_([A-Za-z0-9_]+)__$/.exec(raw || '');
@@ -286,7 +318,7 @@ function applyI18nPlaceholders(root = document, dict) {
     return (chrome.i18n && chrome.i18n.getMessage) ? chrome.i18n.getMessage(key) : '';
   };
   // Attributes
-  const ATTRS = ['title', 'placeholder', 'aria-label'];
+  const ATTRS = ['title', 'placeholder', 'aria-label', 'alt'];
   const all = root.querySelectorAll('*');
   all.forEach(el => {
     ATTRS.forEach(attr => {
@@ -322,6 +354,7 @@ document.addEventListener('DOMContentLoaded', () => {
   attachSuggest('modelFirst', 'modelFirstSuggest');
   attachSuggest('modelSecond', 'modelSecondSuggest');
   wirePerModelTests();
+  wireApiKeyToggle();
 });
 
 async function loadDict(lang) {
@@ -333,10 +366,11 @@ async function loadDict(lang) {
 async function applyUiLangOverride() {
   const sel = document.getElementById('uiLang');
   let lang = sel ? sel.value : 'auto';
-  if (lang === 'zh_TW') lang = 'zh_CN';
   const dict = await loadDict(lang);
   // Re-run placeholder replacement with override dictionary
   __i18nDict = dict || null;
   try { applyI18nPlaceholders(document, dict); } catch {}
   try { if (dict && dict.options_title) document.title = dict.options_title; } catch {}
+  // Re-sync API key toggle label after i18n replacement
+  try { updateApiKeyIcon(); } catch {}
 }

@@ -19,7 +19,7 @@ function applyI18nPlaceholders(root) {
       const v = (__i18nDict && __i18nDict[key]) || ((chrome.i18n && chrome.i18n.getMessage) ? chrome.i18n.getMessage(key) : '');
       return v || null;
     };
-    const ATTRS = ['title', 'placeholder', 'aria-label'];
+    const ATTRS = ['title', 'placeholder', 'aria-label', 'alt'];
     const all = (root || document).querySelectorAll('*');
     all.forEach(el => {
       ATTRS.forEach(attr => {
@@ -120,7 +120,6 @@ async function createUI() {
     try {
       const store = await chrome.storage.local.get('settings');
       let uiLang = (store && store.settings && store.settings.uiLang) || 'auto';
-      if (uiLang === 'zh_TW') uiLang = 'zh_CN';
       if (uiLang && uiLang !== 'auto') {
         const url = chrome.runtime.getURL(`assets/i18n/${uiLang}.json`);
         const res = await fetch(url);
