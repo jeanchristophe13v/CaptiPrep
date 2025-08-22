@@ -17,8 +17,7 @@ const DEFAULTS = {
   model: 'gemini-2.5-flash',
   modelFirst: 'gemini-2.5-flash-lite-preview-06-17',
   modelSecond: 'gemini-2.5-flash',
-  accent: 'us',
-  glossLang: 'en',
+  glossLang: 'auto',
   uiLang: 'auto'
 };
 
@@ -61,15 +60,19 @@ async function load() {
     uiLangSel.value = has ? v : 'auto';
   }
 
-  // Accent radios
-  const radios = document.querySelectorAll('input[name="accent"]');
-  let set = false; radios.forEach(r => { if (r.value === (s.accent || 'us')) { r.checked = true; set = true; } });
-  if (!set) { const us = document.querySelector('input[name="accent"][value="us"]'); if (us) us.checked = true; }
+  // Accent removed: UI now shows both US/UK for English
 
-  // GlossLang radios
-  const glossRadios = document.querySelectorAll('input[name="glossLang"]');
-  let gset = false; glossRadios.forEach(r => { if (r.value === (s.glossLang || 'en')) { r.checked = true; gset = true; } });
-  if (!gset) { const en = document.querySelector('input[name="glossLang"][value="en"]'); if (en) en.checked = true; }
+  // GlossLang select (default from browser when 'auto')
+  const glossSelEl = document.getElementById('glossLang');
+  if (glossSelEl) {
+    let glossValue = s.glossLang || 'auto';
+    if (glossValue === 'auto') {
+      const ui = (chrome.i18n && typeof chrome.i18n.getUILanguage === 'function') ? chrome.i18n.getUILanguage() : (navigator.language || 'en');
+      glossValue = mapUiToGloss(ui);
+    }
+    const has = Array.from(glossSelEl.options).some(o => o.value === glossValue);
+    glossSelEl.value = has ? glossValue : 'en';
+  }
 
   // Apply active provider profile (with Gemini defaults only)
   applyProfileToForm(getActiveProfile(CURRENT_PROVIDER, true));
@@ -114,10 +117,8 @@ function collectProfileFromForm() {
 }
 
 function getFormSettings() {
-  const radios = document.querySelectorAll('input[name="accent"]:checked');
-  const accent = radios.length ? radios[0].value : 'us';
-  const glossSel = document.querySelectorAll('input[name="glossLang"]:checked');
-  const glossLang = glossSel.length ? glossSel[0].value : 'en';
+  const glossSelEl2 = document.getElementById('glossLang');
+  const glossLang = glossSelEl2 ? glossSelEl2.value : 'en';
 
   const prof = collectProfileFromForm();
   const model = prof.modelFirst || prof.modelSecond || '';
@@ -128,7 +129,6 @@ function getFormSettings() {
     modelFirst: prof.modelFirst,
     modelSecond: prof.modelSecond,
     apiKey: prof.apiKey,
-    accent,
     glossLang,
     uiLang: (document.getElementById('uiLang')?.value || 'auto')
   };
@@ -159,7 +159,7 @@ async function save(now = false) {
 }
 
 function wireAutosave() {
-  const ids = ['provider','baseUrl','apiKey','modelFirst','modelSecond','uiLang'];
+  const ids = ['provider','baseUrl','apiKey','modelFirst','modelSecond','uiLang','glossLang'];
   ids.forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
@@ -173,10 +173,7 @@ function wireAutosave() {
       }
     });
   });
-  // Accent radios
-  document.querySelectorAll('input[name="accent"]').forEach(r => r.addEventListener('change', () => save(false)));
-  // GlossLang radios
-  document.querySelectorAll('input[name="glossLang"]').forEach(r => r.addEventListener('change', () => save(false)));
+  // Accent removed
 }
 
 function wireProviderSwitch() {
@@ -373,4 +370,18 @@ async function applyUiLangOverride() {
   try { if (dict && dict.options_title) document.title = dict.options_title; } catch {}
   // Re-sync API key toggle label after i18n replacement
   try { updateApiKeyIcon(); } catch {}
+}
+
+function mapUiToGloss(uiLang) {
+  const c = String(uiLang || '').toLowerCase();
+  if (c.startsWith('en')) return 'en';
+  if (c.startsWith('zh-cn') || c === 'zh-hans' || c === 'zh') return 'zh_CN';
+  if (c.startsWith('zh-tw') || c === 'zh-hant') return 'zh_TW';
+  if (c.startsWith('ja')) return 'ja';
+  if (c.startsWith('ko')) return 'ko';
+  if (c.startsWith('ru')) return 'ru';
+  if (c.startsWith('fr')) return 'fr';
+  if (c.startsWith('de')) return 'de';
+  if (c.startsWith('es')) return 'es';
+  return 'en';
 }

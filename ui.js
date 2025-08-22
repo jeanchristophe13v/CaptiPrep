@@ -40,17 +40,21 @@ function applyI18nPlaceholders(root) {
 }
 
 // Backend facade
-const B = (globalThis.CaptiPrep && globalThis.CaptiPrep.backend) || {};
+// Avoid duplicate const redeclare when UI script is injected twice
+// eslint-disable-next-line no-var
+var B = (typeof B !== 'undefined' && B) || (globalThis.CaptiPrep && globalThis.CaptiPrep.backend) || {};
 
 // Simple UI state
-let modalOpen = false;
-let uiRoot = null;
-let buildWatchTimer = null; // polling to reflect background building status
-let selectWatchTimer = null; // polling to reflect background selecting status
-let currentState = {
+// Use var so re-injection doesn't throw on redeclare
+var modalOpen = typeof modalOpen !== 'undefined' ? modalOpen : false;
+var uiRoot = typeof uiRoot !== 'undefined' ? uiRoot : null;
+var buildWatchTimer = typeof buildWatchTimer !== 'undefined' ? buildWatchTimer : null; // polling to reflect background building status
+var selectWatchTimer = typeof selectWatchTimer !== 'undefined' ? selectWatchTimer : null; // polling to reflect background selecting status
+var currentState = typeof currentState !== 'undefined' ? currentState : {
   videoId: null,
   title: null,
   subtitlesText: null,
+  captionLang: null,
   candidates: null,
   selected: null,
   cards: null,
@@ -58,11 +62,11 @@ let currentState = {
 };
 
 // 全局 UI 状态
-let ccGridMode = false; // 是否网格视图
-let ccEditMode = false; // 是否编辑模式（大卡片）
-let currentCardIndex = 0; // 当前卡索引
+var ccGridMode = typeof ccGridMode !== 'undefined' ? ccGridMode : false; // 是否网格视图
+var ccEditMode = typeof ccEditMode !== 'undefined' ? ccEditMode : false; // 是否编辑模式（大卡片）
+var currentCardIndex = typeof currentCardIndex !== 'undefined' ? currentCardIndex : 0; // 当前卡索引
 // 记录由插件暂停的 video 元素，便于关闭面板时恢复播放
-let __ccPausedVideos = new Set();
+var __ccPausedVideos = (typeof __ccPausedVideos !== 'undefined') ? __ccPausedVideos : new Set();
 
 // 入口消息（负责 UI 开关）
 chrome.runtime.onMessage.addListener((msg) => {
@@ -382,6 +386,7 @@ async function bootFlow() {
   const saved = await B.loadVideoData(videoId);
   if (saved && saved.cards && saved.cards.length) {
     currentState.subtitlesText = saved.subtitlesText || null;
+    currentState.captionLang = saved.captionLang || null;
     currentState.candidates = saved.candidates || null;
     currentState.selected = saved.selected || null;
     currentState.cards = saved.cards || null;
@@ -392,6 +397,7 @@ async function bootFlow() {
   // If background is currently building, keep UI in syncing state instead of restarting the pipeline
   if (saved && saved.building && (saved.selected && saved.selected.length)) {
     currentState.subtitlesText = saved.subtitlesText || null;
+    currentState.captionLang = saved.captionLang || null;
     currentState.candidates = saved.candidates || null;
     currentState.selected = saved.selected || null;
     setStep([t('steps_extract'), t('steps_filter'), t('steps_build')], 3);
@@ -431,6 +437,7 @@ async function startFlow(forceRegenerate = false) {
       // If candidates already exist and user hasn't selected yet, go directly to selection UI
       if (saved && Array.isArray(saved.candidates) && saved.candidates.length && (!saved.selected || !saved.selected.length)) {
         currentState.subtitlesText = saved.subtitlesText || null;
+        currentState.captionLang = saved.captionLang || null;
         currentState.candidates = saved.candidates || [];
         setStep([t('steps_extract'), t('steps_filter'), t('steps_build')], 2);
         renderSelection();
@@ -439,6 +446,7 @@ async function startFlow(forceRegenerate = false) {
       // If selecting is in progress, show filtering progress and watch for completion
       if (saved && saved.selecting && saved.subtitlesText) {
         currentState.subtitlesText = saved.subtitlesText;
+        currentState.captionLang = saved.captionLang || null;
         setStep([t('steps_extract'), t('steps_filter'), t('steps_build')], 2);
         renderProgress(t('progress_filtering'));
         startSelectWatcher();
@@ -447,11 +455,13 @@ async function startFlow(forceRegenerate = false) {
       // If subtitles already extracted, skip extraction and continue to filtering
       if (saved && saved.subtitlesText) {
         currentState.subtitlesText = saved.subtitlesText;
+        currentState.captionLang = saved.captionLang || null;
         setStep([t('steps_extract'), t('steps_filter'), t('steps_build')], 2);
         renderProgress(t('progress_filtering'));
         await B.saveVideoData(currentState.videoId, { selecting: true });
         try {
-          const resp = await B.llmCall('first', { subtitlesText: currentState.subtitlesText, maxItems: 60 });
+          const sampled = sampleTranscript(currentState.subtitlesText, 12000);
+          const resp = await B.llmCall('first', { subtitlesText: sampled, captionLang: currentState.captionLang, maxItems: 60 });
           currentState.candidates = resp.items || [];
           await B.saveVideoData(currentState.videoId, { candidates: currentState.candidates, selecting: false });
         } catch (e) {
@@ -463,10 +473,16 @@ async function startFlow(forceRegenerate = false) {
         return;
       }
     }
-    const subtitlesText = await B.extractCaptionsText();
-    currentState.subtitlesText = subtitlesText;
+    const cap = await B.extractCaptionsText();
+    if (typeof cap === 'string') {
+      currentState.subtitlesText = cap;
+      currentState.captionLang = null;
+    } else {
+      currentState.subtitlesText = cap && cap.text || '';
+      currentState.captionLang = cap && cap.lang || null;
+    }
     const createdAt = formatDateYYYYMMDD(new Date());
-    await B.saveVideoData(currentState.videoId, { subtitlesText, title, createdAt });
+    await B.saveVideoData(currentState.videoId, { subtitlesText: currentState.subtitlesText, captionLang: currentState.captionLang, title, createdAt });
   } catch (e) {
     currentState.error = String(e?.message || e);
     renderError(t('error_captions'), currentState.error);
@@ -477,7 +493,8 @@ async function startFlow(forceRegenerate = false) {
   renderProgress(t('progress_filtering'));
   try {
     await B.saveVideoData(currentState.videoId, { selecting: true });
-    const resp = await B.llmCall('first', { subtitlesText: currentState.subtitlesText, maxItems: 60 });
+    const sampled = sampleTranscript(currentState.subtitlesText, 12000);
+    const resp = await B.llmCall('first', { subtitlesText: sampled, captionLang: currentState.captionLang, maxItems: 60 });
     currentState.candidates = resp.items || [];
     await B.saveVideoData(currentState.videoId, { candidates: currentState.candidates, selecting: false });
   } catch (e) {
@@ -647,7 +664,8 @@ async function buildCards() {
   try {
     // mark background building so UI can resume progress on reopen
     await B.saveVideoData(currentState.videoId, { building: true });
-    const resp = await B.llmCall('second', { selected: currentState.selected });
+    const context = buildContextForSelected(currentState.subtitlesText, currentState.selected, currentState.captionLang, 2);
+    const resp = await B.llmCall('second', { selected: currentState.selected, captionLang: currentState.captionLang, context });
     currentState.cards = resp.cards || [];
     // 初次生成写入 createdAt（如果尚未存在）
     const saved = await B.loadVideoData(currentState.videoId) || {};
@@ -715,8 +733,8 @@ function renderLearnView() {
   const renderGrid = () => `
     <div class="cc-grid">
       ${cards.map(c => {
-        const ipa = formatIpa(c.ipa || '');
-        const meta = [ipa ? `/${escapeHtml(ipa)}/` : '', c.pos ? escapeHtml(c.pos) : '']
+        const pron = formatPronunciationMeta(c, currentState.captionLang);
+        const meta = [pron, c.pos ? escapeHtml(c.pos) : '']
           .filter(Boolean)
           .join(' · ');
         return `
@@ -748,12 +766,12 @@ function renderLearnView() {
 
 function renderCardView(card) {
   const c = { term: '', ipa: '', pos: '', definition: '', examples: [], notes: '', ...card };
-  const ipa = formatIpa(c.ipa);
-  const examplesHtml = renderExamplesQuote(c.examples || []);
+  const pron = formatPronunciationMeta(c, currentState.captionLang);
+  const examplesHtml = renderExamplesQuoteEx(c.examples || []);
   return `
     <div class="cc-view">
       <div class="term">${escapeHtml(c.term)}</div>
-      <div class="meta">${ipa ? `/${escapeHtml(ipa)}/` : ''} ${c.pos ? `· ${escapeHtml(c.pos)}` : ''}</div>
+      <div class="meta">${pron ? `${pron}` : ''} ${c.pos ? `· ${escapeHtml(c.pos)}` : ''}</div>
       <div class="definition">${escapeHtml(c.definition||'')}</div>
       ${examplesHtml}
       ${c.notes ? `<div class="notes">${escapeHtml(c.notes)}</div>` : ''}
@@ -812,6 +830,66 @@ function formatIpa(s) {
   return t.replace(/^\/+|\/+$/g, '');
 }
 
+function normalizeLang(code) {
+  if (!code) return 'und';
+  const c = String(code).toLowerCase().replace('_','-');
+  if (c.startsWith('en')) return 'en';
+  if (c.startsWith('zh-cn') || c === 'zh-hans' || c === 'zh') return 'zh_CN';
+  if (c.startsWith('zh-tw') || c === 'zh-hant') return 'zh_TW';
+  if (c.startsWith('ja')) return 'ja';
+  if (c.startsWith('ko')) return 'ko';
+  if (c.startsWith('ru')) return 'ru';
+  if (c.startsWith('fr')) return 'fr';
+  if (c.startsWith('de')) return 'de';
+  if (c.startsWith('es')) return 'es';
+  return c;
+}
+
+function formatPronunciation(raw, captionLang) {
+  const v = (raw || '').trim();
+  if (!v) return '';
+  const clean = formatIpa(v);
+  const lang = normalizeLang(captionLang);
+  // Add slashes for IPA languages; keep raw for zh/ja/ko and unknowns
+  if (lang === 'en' || lang === 'ru' || lang === 'fr' || lang === 'de' || lang === 'es') {
+    return '/' + escapeHtml(clean) + '/';
+  }
+  return escapeHtml(clean);
+}
+
+// For English, show both US/UK if available; otherwise fall back to single ipa.
+function formatPronunciationMeta(card, captionLang) {
+  const lang = normalizeLang(captionLang);
+  if (lang === 'en') {
+    const us = (card.ipa_us || '').trim();
+    const uk = (card.ipa_uk || '').trim();
+    const parts = [];
+    if (us) parts.push('US: ' + '/' + escapeHtml(formatIpa(us)) + '/');
+    if (uk) parts.push('UK: ' + '/' + escapeHtml(formatIpa(uk)) + '/');
+    if (parts.length) return parts.join(' · ');
+    return formatPronunciation(card.ipa || '', captionLang);
+  }
+  return formatPronunciation(card.ipa || '', captionLang);
+}
+
+// Enhanced examples renderer supporting pronunciation line for non-English sources
+function renderExamplesQuoteEx(list) {
+  if (!list || !list.length) return '';
+  const srcLang = normalizeLang(currentState.captionLang);
+  const blocks = list.slice(0, 2).map(raw => {
+    const lines = String(raw).split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    const l1 = lines[0] || '';
+    if (srcLang !== 'en') {
+      const l2 = lines[1] || '';
+      const l3 = lines[2] || '';
+      return `<blockquote><div>${escapeHtml(l1)}</div>${l2 ? `<div class="cc-small">${escapeHtml(l2)}</div>` : ''}${l3 ? `<div class="cc-small">${escapeHtml(l3)}</div>` : ''}</blockquote>`;
+    }
+    const l2 = lines[1] || '';
+    return `<blockquote><div>${escapeHtml(l1)}</div>${l2 ? `<div class="cc-small">${escapeHtml(l2)}</div>` : ''}</blockquote>`;
+  }).join('');
+  return `<div class="examples-quote">${blocks}</div>`;
+}
+
 async function deleteAllForThisVideo() {
   if (!currentState.videoId) return;
   await B.saveVideoData(currentState.videoId, { subtitlesText: null, candidates: null, selected: null, cards: null, title: currentState.title });
@@ -822,10 +900,10 @@ async function deleteAllForThisVideo() {
 async function exportCSV() {
   const cards = currentState.cards || [];
   if (!cards.length) return;
-  const rows = [['term', 'ipa', 'pos', 'definition', 'notes', 'examples']]
+  const rows = [['term', 'ipa', 'ipa_us', 'ipa_uk', 'pos', 'definition', 'notes', 'examples']]
     .concat(cards.map(c => {
       const examples = (c.examples || []).join('\n\n');
-      return [c.term||'', c.ipa||'', c.pos||'', c.definition||'', c.notes||'', examples];
+      return [c.term||'', c.ipa||'', c.ipa_us||'', c.ipa_uk||'', c.pos||'', c.definition||'', c.notes||'', examples];
     }))
     .map(r => r.map(cell => '"' + String(cell).replace(/"/g, '""') + '"').join(','))
     .join('\r\n');
@@ -840,6 +918,67 @@ async function exportCSV() {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+// Sample a long transcript to a target character budget by uniform line downsampling
+function sampleTranscript(text, targetChars = 12000) {
+  try {
+    if (!text || text.length <= targetChars) return text || '';
+    const lines = String(text).split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    if (!lines.length) return String(text).slice(0, targetChars);
+    // Compute stride to roughly meet budget
+    const avgLen = Math.max(1, Math.floor((text.length / lines.length)));
+    const approxKeep = Math.max(1, Math.floor(targetChars / avgLen));
+    const stride = Math.max(1, Math.ceil(lines.length / approxKeep));
+    const sampled = [];
+    for (let i = 0; i < lines.length; i += stride) sampled.push(lines[i]);
+    // Ensure we at least include head/tail
+    if (sampled[0] !== lines[0]) sampled.unshift(lines[0]);
+    if (sampled[sampled.length - 1] !== lines[lines.length - 1]) sampled.push(lines[lines.length - 1]);
+    let out = sampled.join('\n');
+    if (out.length > targetChars) out = out.slice(0, targetChars);
+    return out;
+  } catch {
+    return String(text || '').slice(0, targetChars);
+  }
+}
+
+// Build brief transcript evidence for each selected term to guide definitions
+function buildContextForSelected(text, selected, captionLang, maxPerTerm = 2) {
+  try {
+    const list = Array.isArray(selected) ? selected : [];
+    const raw = String(text || '');
+    if (!raw || !list.length) return [];
+    const lines = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    const lang = normalizeLang(captionLang);
+    const isLatin = (lang === 'en' || lang === 'fr' || lang === 'de' || lang === 'es' || lang === 'ru');
+    const esc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const clip = (line, term) => {
+      const s = String(line);
+      if (s.length <= 160) return s;
+      let idx = -1;
+      try { idx = s.toLowerCase().indexOf(String(term || '').toLowerCase()); } catch {}
+      if (idx < 0) idx = Math.floor(s.length / 2);
+      const start = Math.max(0, idx - 60);
+      const end = Math.min(s.length, start + 160);
+      const head = start > 0 ? '…' : '';
+      const tail = end < s.length ? '…' : '';
+      return head + s.slice(start, end).trim() + tail;
+    };
+    return list.map(it => {
+      const term = String(it && it.term || '').trim();
+      if (!term) return { term, lines: [] };
+      let re = null;
+      if (isLatin) re = new RegExp(`(^|[^A-Za-z0-9])${esc(term)}([^A-Za-z0-9]|$)`, 'i');
+      const hits = [];
+      for (const ln of lines) {
+        if (hits.length >= maxPerTerm) break;
+        const ok = isLatin ? re.test(ln) : ln.includes(term);
+        if (ok) hits.push(clip(ln, term));
+      }
+      return { term, lines: hits };
+    });
+  } catch { return []; }
 }
 
 function renderOnboarding() {

@@ -85,7 +85,36 @@
       </div>
     </div>
 
-    
+    <!-- Language section moved to the top -->
+    <section class="card">
+      <div class="card-hd">
+        <div class="card-tt" data-i18n="options_section_language">__MSG_options_section_language__</div>
+      </div>
+      <div class="card-bd">
+        <div class="row">
+          <label for="uiLang" data-i18n="options_label_ui_lang">__MSG_options_label_ui_lang__</label>
+          <select id="uiLang" class="w-1-3">
+            <option value="auto" data-i18n="options_ui_lang_auto">__MSG_options_ui_lang_auto__</option>
+            <option value="en" data-i18n="options_ui_lang_en">__MSG_options_ui_lang_en__</option>
+            <option value="zh_CN" data-i18n="options_ui_lang_zh_cn">__MSG_options_ui_lang_zh_cn__</option>
+          </select>
+        </div>
+        <div class="row">
+          <label for="glossLang" data-i18n="options_label_gloss">__MSG_options_label_gloss__</label>
+          <select id="glossLang" class="w-1-3">
+            <option value="en" data-i18n="options_gloss_en">__MSG_options_gloss_en__</option>
+            <option value="zh_CN" data-i18n="options_gloss_zh_cn">__MSG_options_gloss_zh_cn__</option>
+            <option value="zh_TW" data-i18n="options_gloss_zh_tw">__MSG_options_gloss_zh_tw__</option>
+            <option value="ja" data-i18n="options_gloss_ja">__MSG_options_gloss_ja__</option>
+            <option value="ko" data-i18n="options_gloss_ko">__MSG_options_gloss_ko__</option>
+            <option value="ru" data-i18n="options_gloss_ru">__MSG_options_gloss_ru__</option>
+            <option value="fr" data-i18n="options_gloss_fr">__MSG_options_gloss_fr__</option>
+            <option value="de" data-i18n="options_gloss_de">__MSG_options_gloss_de__</option>
+            <option value="es" data-i18n="options_gloss_es">__MSG_options_gloss_es__</option>
+          </select>
+        </div>
+      </div>
+    </section>
 
     <section class="card">
       <div class="card-hd">
@@ -118,20 +147,7 @@
             </svg>
           </div>
         </div>
-        <div class="row">
-          <label data-i18n="options_label_accent">__MSG_options_label_accent__</label>
-          <div class="choices">
-            <label class="choice"><input type="radio" name="accent" value="us" /> <span data-i18n="options_accent_us">__MSG_options_accent_us__</span></label>
-            <label class="choice"><input type="radio" name="accent" value="uk" /> <span data-i18n="options_accent_uk">__MSG_options_accent_uk__</span></label>
-          </div>
-        </div>
-        <div class="row">
-          <label data-i18n="options_label_gloss">__MSG_options_label_gloss__</label>
-          <div class="choices">
-            <label class="choice"><input type="radio" name="glossLang" value="en" /> <span data-i18n="options_gloss_en">__MSG_options_gloss_en__</span></label>
-            <label class="choice"><input type="radio" name="glossLang" value="zh" /> <span data-i18n="options_gloss_zh">__MSG_options_gloss_zh__</span></label>
-          </div>
-        </div>
+        <!-- Accent selection removed: UI now shows both US/UK for English -->
       </div>
     </section>
 
@@ -166,22 +182,7 @@
       </div>
     </section>
 
-    <!-- Moved Language section to bottom -->
-    <section class="card">
-      <div class="card-hd">
-        <div class="card-tt" data-i18n="options_section_language">__MSG_options_section_language__</div>
-      </div>
-      <div class="card-bd">
-        <div class="row">
-          <label for="uiLang" data-i18n="options_label_ui_lang">__MSG_options_label_ui_lang__</label>
-          <select id="uiLang" class="w-1-3">
-            <option value="auto" data-i18n="options_ui_lang_auto">__MSG_options_ui_lang_auto__</option>
-            <option value="en" data-i18n="options_ui_lang_en">__MSG_options_ui_lang_en__</option>
-            <option value="zh_CN" data-i18n="options_ui_lang_zh_cn">__MSG_options_ui_lang_zh_cn__</option>
-          </select>
-        </div>
-      </div>
-    </section>
+    
   </div>
 
   <!-- Removed bottom brand icon to avoid extra height -->

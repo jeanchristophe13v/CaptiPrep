@@ -103,6 +103,30 @@
       return;
     }
 
+    // Read currently selected caption track from the in-page player
+    if (d.type === 'CC_GET_SELECTED_CC' && d.id) {
+      try {
+        const player = document.getElementById('movie_player');
+        let track = null;
+        try {
+          if (player && typeof player.getOption === 'function') {
+            track = player.getOption('captions', 'track') || player.getOption('cc', 'track') || null;
+          }
+        } catch {}
+        // Normalize shape
+        const pick = track ? {
+          languageCode: track.languageCode || track.lang || '',
+          vssId: track.vssId || '',
+          translationLanguage: track.translationLanguage || '',
+          kind: track.kind || '',
+          name: (track.name && (track.name.simpleText || track.name.runs?.map(r=>r.text).join('') || '')) || ''
+        } : null;
+        window.postMessage({ type: 'CC_SELECTED_CC', id: d.id, ok: true, track: pick }, location.origin);
+      } catch (e) {
+        try { window.postMessage({ type: 'CC_SELECTED_CC', id: d.id, ok: false, error: String(e) }, location.origin); } catch {}
+      }
+      return;
+    }
     // NEW: InnerTube POST proxy (player/next/get_transcript)
     if (d.type === 'CC_YT_API' && d.id && d.endpoint && d.payload) {
       try {

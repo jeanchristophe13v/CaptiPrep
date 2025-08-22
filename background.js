@@ -10,8 +10,9 @@ const DEFAULT_SETTINGS = {
   modelFirst: 'gemini-2.5-flash-lite-preview-06-17',
   modelSecond: 'gemini-2.5-flash',
   accent: 'us', // 'us' or 'uk'
-  // New: definition/notes language for cards ('en' | 'zh')
-  glossLang: 'en',
+  // New: definition/notes language for cards. 'auto' follows browser language on first run.
+  // Supported: 'en','zh_CN','zh_TW','ja','ko','ru','fr','de','es'
+  glossLang: 'auto',
   // UI language override: 'auto' | 'en' | 'zh_CN'
   uiLang: 'auto'
 };
@@ -138,7 +139,8 @@ async function handleLLMCall(payload) {
   const settings = await getSettings();
   const { role, data } = payload; // role: 'first'|'second'
 
-  const { provider, baseUrl, apiKey, accent, glossLang } = settings;
+  const { provider, baseUrl, apiKey, accent } = settings;
+  const glossLang = resolveGlossLang(settings.glossLang, settings.uiLang);
   if (!apiKey) throw new Error('Missing API key in settings');
 
   const prompts = buildPrompts(role, data, { accent, glossLang });
@@ -149,7 +151,8 @@ async function handleLLMCall(payload) {
     : (settings.modelSecond || settings.model);
 
   // Sampling per role
-  const temperature = role === 'first' ? 0 : 0.4;
+  // Lower temperature to reduce hallucination in definition/example stage
+  const temperature = role === 'first' ? 0 : 0.0;
   const topP = 1;
 
   const text = await callProvider({ provider, baseUrl, apiKey, model, prompt: prompts.prompt, temperature, topP });
@@ -161,58 +164,123 @@ async function handleLLMCall(payload) {
   } catch (e) {
     throw new Error('LLM returned non-JSON or invalid JSON. Raw: ' + truncate(text, 800));
   }
+  // Post-processing
+  if (role === 'first') {
+    try {
+      parsed = postProcessCandidates(parsed, data && data.subtitlesText, data && data.captionLang, data && data.maxItems);
+    } catch (e) { /* ignore */ }
+  } else if (role === 'second') {
+    try {
+      const srcLang = normalizeLang(data && data.captionLang);
+      const gloss = resolveGlossLang((await getSettings()).glossLang, (await getSettings()).uiLang);
+      parsed = postProcessCards(parsed, srcLang, gloss, (await getSettings()).accent);
+      // Align to requested ordering to avoid stray or missing items
+      const want = Array.isArray(data && data.selected) ? data.selected : [];
+      parsed = alignCardsToSelected(parsed, want, srcLang);
+    } catch (e) {
+      // best-effort; ignore
+    }
+  }
   return parsed;
 }
 
 function buildPrompts(role, data, opts) {
   const { accent, glossLang } = (opts || {});
   if (role === 'first') {
-    const { subtitlesText, maxItems = 60 } = data;
-    const system = `You are an expert English vocabulary curator for learners with intermediate+ proficiency. Remove trivial or banal items.`;
-    const user = `Task: From the transcript below, extract high-value words and short expressions that are worth deliberate study. Exclude trivial/basic examples such as: apple, orange, banana, I don't know, you know, good morning, how are you, thanks, hello.
+    const { subtitlesText, captionLang, maxItems = 60 } = data;
+    const langHint = captionLang && typeof captionLang === 'string' && captionLang.trim() ? captionLang : 'auto-detect';
+    const system = `You are an expert vocabulary curator. Focus strictly on the specified source language (source: ${langHint}).`;
+
+    const langGate = (() => {
+      const s = normalizeLang(langHint);
+      if (s === 'en') return `Only include ENGLISH words/phrases. Ignore transliterations or borrowings from other languages. Terms must be A–Z letters (with apostrophes/hyphens allowed).`;
+      if (s === 'ja') return `Only include JAPANESE terms. Prefer items containing kana (ひらがな/カタカナ). Do NOT include Chinese Pinyin or romaji-only as "term"; keep original script.`;
+      if (s === 'zh_CN' || s === 'zh_TW') return `Only include CHINESE terms. Keep "term" in Han characters (and necessary separators). Do NOT include Japanese-specific kana or romaji.`;
+      if (s === 'ko') return `Only include KOREAN terms (Hangul). Do NOT include romaja as the "term".`;
+      return `Only include terms clearly in the source language.`;
+    })();
+
+    const user = `Task: From the transcript below, extract high-value words and short expressions in the ORIGINAL transcript language. Keep "term" EXACTLY as it appears in the transcript (original writing). Exclude trivial/basic items (e.g., greetings, fillers, very common object words).
 
 Return JSON strictly with this shape:
 {
   "items": [ { "term": string, "type": "word"|"phrase", "freq": number } ]
 }
 Rules:
-- Rank by usefulness/frequency in this specific transcript, not general corpora.
+- Only include a term if the exact string occurs in the transcript. For Latin scripts, match case-insensitively and as a whole word/phrase; for CJK/KO, substring match.
+- Rank by usefulness/frequency in THIS transcript, not general corpora.
 - Avoid overly-rare named entities unless broadly useful.
-- Prefer multi-word expressions if they are idiomatic or hard to translate.
-- freq is a rough integer frequency count or weight.
+- Prefer multi-word expressions if idiomatic or hard to translate.
+- Merge inflections/variants into one lemma when obvious.
+- freq is a rough integer count/weight.
 - Limit items to about ${maxItems}.
+- Language gate: ${langGate}
+- If uncertain, return an empty list rather than guessing.
 
-Transcript (English, lightly noisy, do minimal normalization to understand):\n\n${subtitlesText}`;
+Transcript (language: ${langHint}; may be lightly noisy):\n\n${subtitlesText}`;
     return { prompt: composeChat(system, user) };
   } else if (role === 'second') {
-    const { selected } = data;
+    const { selected, captionLang } = data;
     const accentLabel = accent === 'uk' ? 'British' : 'American';
-    const glossLabel = glossLang === 'zh' ? 'Chinese' : 'English';
-    const system = `You are a concise English lexicographer. Output clean IPA and succinct meanings.`;
+    const srcLang = normalizeLang(captionLang);
+    const gloss = normalizeLang(glossLang);
+    const glossLabel = humanLabelForLang(gloss);
+    const srcLabel = humanLabelForLang(srcLang);
+    const pronGuide = pronunciationGuide(srcLang, accentLabel);
 
-    // Always require two example pairs: English + Chinese translation
-    const exampleRule = `Provide exactly 2 example PAIRS per item. For each pair, output a SINGLE STRING value with TWO lines separated by a newline ("\n"):
-  line 1: an English sentence (natural, common)
-  line 2: the concise Chinese translation of line 1
-Do not add bullets, numbering, labels, or extra notes.`;
+    const system = `You are a concise lexicographer. Produce accurate pronunciation and succinct meanings.`;
 
-    const defRule = (glossLang === 'zh')
-      ? `Write the "definition" and "notes" in Chinese.`
-      : `Write the "definition" and "notes" in English.`;
+    // Simplify examples to reduce hallucination: always 2 lines (source, translation)
+    const exampleRule = `Provide exactly 2 example PAIRS per item. For each pair, output a SINGLE STRING with TWO lines separated by a newline ("\n"):
+  line 1: a natural sentence in ${srcLabel}
+  line 2: its concise ${glossLabel} translation
+No bullets, numbering, or extra notes.`;
 
-    const user = `Task: For each item, produce phonetic transcription (IPA, ${accentLabel}), part of speech (in English), a short learner-friendly definition, example sentence(s), and a brief note for meme/culture/common confusions if relevant. Keep it compact.
+    const defRule = (gloss === 'zh_CN' || gloss === 'zh_TW')
+      ? `Write the "definition" and "notes" in Chinese (${gloss === 'zh_TW' ? 'Traditional' : 'Simplified'}).`
+      : `Write the "definition" and "notes" in ${glossLabel}.`;
+
+    const ipaRule = `For pronunciation fields: ${pronGuide}`;
+    const accentNote = (srcLang === 'en') ? `Use ${accentLabel} pronunciation.` : `Do NOT include English accent notes for non-English.`;
+
+    const posRule = (gloss === 'zh_CN' || gloss === 'zh_TW')
+      ? 'Use POS in Chinese, e.g., 名词/动词/形容词/副词/短语/惯用语/助词/连词/叹词/敬语/形式体/感叹等。Do not output English labels like "Verb".'
+      : `Use POS in ${glossLabel}; do not output English labels when ${glossLabel} is not English.`;
+
+    const critical = `Critical constraints:
+- All pronunciation fields must reflect the SOURCE language (${srcLabel}), NOT the gloss language. Never romanize Chinese for Japanese terms; e.g., "季節" must be "kisetsu", not Chinese Pinyin.
+- If the script overlaps across languages (e.g., Han characters in Japanese), infer reading from the SOURCE language only.
+- For English source: include both US and UK variants.
+- Keep outputs compact and clean; no brackets, slashes, or extra commentary in fields.`;
+
+    // Evidence context: up to two transcript lines per item, when available
+    const ctx = Array.isArray(data && data.context) ? data.context : [];
+    const evidence = ctx.length ? `\nEvidence from transcript (use to disambiguate meaning; do not quote verbatim in output):\n` + ctx.map((c, i) => {
+      const lines = Array.isArray(c.lines) ? c.lines : [];
+      const head = `${i + 1}. ${c.term}`;
+      return head + (lines.length ? `\n- ${lines.join('\n- ')}` : '\n- (no match)');
+    }).join('\n') + '\n' : '';
+
+    const user = `Task: For each item, produce pronunciation (fields), part of speech (in the CHOSEN GLOSS LANGUAGE), a short learner-friendly definition anchored to the provided evidence (if any), two example pairs, and a brief note for common confusions/culture if relevant. Keep it compact.
 
 ${defRule}
 ${exampleRule}
+${ipaRule}
+${accentNote}
+${posRule}
+${critical}
+${evidence}
 
-Return JSON strictly with this shape:
+Return JSON strictly with this shape and cardinality (exactly one card per input item, same order; do not add or drop items). Always include "ipa"; if source is English, also include both "ipa_us" and "ipa_uk":
 {
   "cards": [ {
     "term": string,
-    "ipa": string,            // IPA (${accentLabel})
-    "pos": string,            // e.g., noun, verb, adj. (in English)
+    "ipa": string,            // pronunciation: see rules (for English, match the primary accent)
+    "ipa_us": string,         // optional; required when source is English
+    "ipa_uk": string,         // optional; required when source is English
+    "pos": string,            // part-of-speech label in ${glossLabel}
     "definition": string,     // concise learner definition (${glossLabel})
-    "examples": string[],     // exactly 2 strings; each string contains two lines: English then Chinese
+    "examples": string[],     // exactly 2 strings; each has 2 lines as specified above
     "notes": string           // may be empty (${glossLabel})
   } ]
 }
@@ -220,7 +288,7 @@ Return JSON strictly with this shape:
 Additional formatting rules:
 - Output raw JSON only (no Markdown fences).
 - Do not use list markers (-, *, 1.) inside strings.
-- Keep IPA clean without slashes.
+- Keep pronunciation clean: no slashes or brackets.
 
 Items:\n${selected.map((t, i) => `${i + 1}. ${t.term}`).join('\n')}`;
     return { prompt: composeChat(system, user) };
@@ -231,6 +299,177 @@ Items:\n${selected.map((t, i) => `${i + 1}. ${t.term}`).join('\n')}`;
 function composeChat(system, user) {
   // Provider adapters will wrap into their specific schema. Here we merge as a single text.
   return `SYSTEM:\n${system}\n\nUSER:\n${user}`;
+}
+
+function resolveGlossLang(glossLang, uiLang) {
+  const g = (glossLang || '').trim();
+  if (g && g !== 'auto') return normalizeLang(g);
+  const ui = (uiLang && uiLang !== 'auto') ? uiLang : (typeof chrome !== 'undefined' && chrome.i18n && typeof chrome.i18n.getUILanguage === 'function' ? chrome.i18n.getUILanguage() : 'en');
+  // Map browser UI to gloss language
+  const norm = normalizeLang(ui);
+  if (norm === 'zh_CN' || norm === 'zh_TW' || norm === 'en') return norm;
+  return 'en';
+}
+
+function normalizeLang(code) {
+  if (!code) return 'und';
+  const c = String(code).toLowerCase().replace('_','-');
+  if (c.startsWith('en')) return 'en';
+  if (c.startsWith('zh-cn') || c === 'zh-hans' || c === 'zh') return 'zh_CN';
+  if (c.startsWith('zh-tw') || c === 'zh-hant') return 'zh_TW';
+  if (c.startsWith('ja')) return 'ja';
+  if (c.startsWith('ko')) return 'ko';
+  if (c.startsWith('ru')) return 'ru';
+  if (c.startsWith('fr')) return 'fr';
+  if (c.startsWith('de')) return 'de';
+  if (c.startsWith('es')) return 'es';
+  return c;
+}
+
+function humanLabelForLang(norm) {
+  switch (norm) {
+    case 'en': return 'English';
+    case 'zh_CN': return 'Chinese(Simplified)';
+    case 'zh_TW': return 'Chinese(Traditional)';
+    case 'ja': return 'Japanese';
+    case 'ko': return 'Korean';
+    case 'ru': return 'Russian';
+    case 'fr': return 'French';
+    case 'de': return 'German';
+    case 'es': return 'Spanish';
+    default: return norm || 'Unknown';
+  }
+}
+
+function pronunciationGuide(srcLang, accentLabel) {
+  const s = normalizeLang(srcLang);
+  if (s === 'en') {
+    return `IPA (broad). No slashes/brackets. Include ${accentLabel} variant. Keep only primary stress (ˈ).`;
+  }
+  if (s === 'zh_CN' || s === 'zh_TW') {
+    return 'Hanyu Pinyin with tone marks (e.g., mā, má, mǎ, mà). No tone numbers. No IPA. Tone mark placement priority a > o > e > i > u > ü (choose the highest-ranked vowel in the syllable, e.g., shui → shuǐ). Use ü (not v).';
+  }
+  if (s === 'ja') {
+    return 'Hepburn with macrons for long vowels: おう/おお → ō, うう → ū; keep ei as ei (e.g., sensei). Do NOT use ā/ī/ē. Use precomposed ō (U+014D)/Ō (U+014C), ū (U+016B)/Ū (U+016A). No IPA. No dashes or kana long mark (ー).';
+  }
+  if (s === 'ko') {
+    return 'Revised Romanization of Korean (RR). ㅓ=eo, ㅗ=o, ㅡ=eu, ㅜ=u, ㅐ=ae, ㅔ=e; final ㄹ as l, syllable-initial/intervocalic ㄹ as r. No diacritics, no apostrophes, no IPA.';
+  }
+  if (s === 'ru') {
+    return 'IPA (broad), Moscow standard. Mark stress. Use palatalization ʲ (e.g., /nʲ tʲ sʲ/). You may minimize unstressed vowel reduction, but keep readability. No slashes/brackets.';
+  }
+  if (s === 'fr') {
+    return 'IPA (broad), Metropolitan French. Include nasal vowels (ɑ̃ ɔ̃ ɛ̃ œ̃) and uvular ʁ. Do NOT mark stress. Liaison optional. No slashes/brackets.';
+  }
+  if (s === 'de') {
+    return 'IPA (broad), Standard German. Mark long vowels with ː when needed. Include y, ø, œ; ich/ach as ç/x. No slashes/brackets.';
+  }
+  if (s === 'es') {
+    return 'IPA (learner-friendly), neutral seseo baseline. r/rr as ɾ/r. x as x (use [h] in many dialects, but keep x for consistency). No slashes/brackets.';
+  }
+  return 'Use the standard romanization or IPA customary for the language; clean text without slashes/brackets.';
+}
+
+function alignCardsToSelected(parsed, selected, srcLang) {
+  try {
+    const out = { ...parsed };
+    const want = Array.isArray(selected) ? selected.map(s => String(s.term || '').trim()) : [];
+    const got = Array.isArray(parsed.cards) ? parsed.cards : [];
+    const isLatin = ['en','fr','de','es','ru'].includes(normalizeLang(srcLang));
+    const norm = (s) => isLatin ? String(s || '').toLowerCase().trim() : String(s || '').trim();
+    const map = new Map();
+    for (const c of got) { const k = norm(c.term); if (k) { if (!map.has(k)) map.set(k, c); } }
+    const aligned = [];
+    for (const term of want) {
+      const k = norm(term);
+      const found = map.get(k);
+      if (found) { aligned.push(found); }
+      else { aligned.push({ term, ipa: '', ipa_us: '', ipa_uk: '', pos: '', definition: '', examples: [], notes: 'insufficient_context' }); }
+    }
+    out.cards = aligned;
+    return out;
+  } catch { return parsed; }
+}
+
+function postProcessCandidates(parsed, subtitlesText, captionLang, maxItems) {
+  try {
+    const out = { ...parsed };
+    const items = Array.isArray(out.items) ? out.items : [];
+    const text = String(subtitlesText || '');
+    if (!text || !items.length) return parsed;
+    const lang = normalizeLang(captionLang);
+    const isLatin = ['en','fr','de','es','ru'].includes(lang);
+    const lines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    const contains = (term) => {
+      if (!term) return false;
+      if (isLatin) {
+        const esc = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const re = new RegExp(`(^|[^A-Za-z0-9])${esc}([^A-Za-z0-9]|$)`, 'i');
+        return lines.some(l => re.test(l));
+      }
+      return lines.some(l => l.includes(term));
+    };
+    const filtered = items.filter(it => contains(String(it.term || '').trim()));
+    // Optional: cap length again and sort by provided freq desc
+    filtered.sort((a, b) => (b.freq || 0) - (a.freq || 0));
+    out.items = typeof maxItems === 'number' ? filtered.slice(0, maxItems) : filtered;
+    return out;
+  } catch { return parsed; }
+}
+
+function postProcessCards(parsed, srcLang, gloss, accent) {
+  try {
+    const out = { ...parsed };
+    const cards = Array.isArray(out.cards) ? out.cards : [];
+    const isZh = (gloss === 'zh_CN' || gloss === 'zh_TW');
+    const map = (s) => String(s || '').trim();
+    const lower = (s) => map(s).toLowerCase();
+    const posMapCN = {
+      'noun': '名词', 'n.': '名词',
+      'verb': '动词', 'v.': '动词', 'auxiliary verb': '助动词', 'aux.': '助动词',
+      'adjective': '形容词', 'adj.': '形容词',
+      'adverb': '副词', 'adv.': '副词',
+      'pronoun': '代词', 'pron.': '代词',
+      'preposition': '介词', 'prep.': '介词',
+      'conjunction': '连词', 'conj.': '连词',
+      'interjection': '叹词', 'int.': '叹词',
+      'particle': '助词', 'postposition': '助词', 'classifier': '量词',
+      'determiner': '限定词', 'article': '冠词',
+      'phrase': '短语', 'idiom': '惯用语', 'expression': '表达',
+      'honorific': '敬语'
+    };
+    const posMapTW = {
+      '名词': '名詞', '动词': '動詞', '形容词': '形容詞', '副词': '副詞', '代词': '代名詞', '介词': '介系詞', '连词': '連接詞', '叹词': '感嘆詞', '助词': '助詞', '量词': '量詞', '限定词': '限定詞', '冠词': '冠詞', '短语': '片語', '惯用语': '慣用語', '表达': '表達', '敬语': '敬語', '助动词': '助動詞'
+    };
+    out.cards = cards.map((c) => {
+      const cc = { ...c };
+      // POS localization fallback for Chinese
+      if (isZh && cc.pos) {
+        const key = lower(cc.pos).replace(/\./g, '').trim();
+        let mapped = null;
+        for (const k in posMapCN) {
+          if (key === k) { mapped = posMapCN[k]; break; }
+        }
+        if (mapped) cc.pos = (gloss === 'zh_TW') ? (posMapTW[mapped] || mapped) : mapped;
+      }
+      // Ensure English has both US/UK fields and pick primary in ipa
+      if (normalizeLang(srcLang) === 'en') {
+        const us = map(cc.ipa_us);
+        const uk = map(cc.ipa_uk);
+        if (!cc.ipa && (us || uk)) {
+          cc.ipa = (accent === 'uk') ? (uk || us) : (us || uk);
+        }
+      }
+      // Trim strings
+      ['term','ipa','ipa_us','ipa_uk','pos','definition','notes'].forEach(f => { if (cc[f]) cc[f] = map(cc[f]); });
+      if (Array.isArray(cc.examples)) cc.examples = cc.examples.map(x => map(x)).slice(0, 2);
+      else cc.examples = [];
+      return cc;
+    });
+    return out;
+  } catch {
+    return parsed;
+  }
 }
 
 async function callProvider({ provider, baseUrl, apiKey, model, prompt, temperature, topP }) {

@@ -4,7 +4,11 @@ var CC_NS = 'CCAPTIPREPS';
 var t = (k, ...subs) => (chrome.i18n && chrome.i18n.getMessage ? chrome.i18n.getMessage(k, subs) : '') || k;
 
 // ===== Debug helper =====
-const CC_DEBUG = false;
+// Avoid duplicate const redeclare when content script is injected twice
+if (!('CC_DEBUG' in window)) {
+  // eslint-disable-next-line no-var
+  var CC_DEBUG = false;
+}
 function dlog(...args) { if (CC_DEBUG) console.log('[CaptiPrep]', ...args); }
 
 // ===== Settings & LLM bridge (background) =====
@@ -149,6 +153,29 @@ function fetchCaptionMainWorld(url) {
   });
 }
 
+function getSelectedCaptionTrackMainWorld() {
+  return new Promise((resolve) => {
+    const id = 'sel_' + Math.random().toString(36).slice(2);
+    const onMsg = (event) => {
+      if (event.source !== window) return;
+      if (event.origin !== location.origin) return;
+      const d = event.data;
+      if (!d || d.type !== 'CC_SELECTED_CC' || d.id !== id) return;
+      window.removeEventListener('message', onMsg);
+      resolve((d.ok && d.track) ? d.track : null);
+    };
+    window.addEventListener('message', onMsg);
+    try { window.postMessage({ type: 'CC_GET_SELECTED_CC', id }, location.origin); } catch (e) {
+      window.removeEventListener('message', onMsg);
+      resolve(null);
+    }
+    setTimeout(() => {
+      try { window.removeEventListener('message', onMsg); } catch {}
+      resolve(null);
+    }, 3000);
+  });
+}
+
 // ===== Caption extraction pipeline =====
 function appendParam(url, key, value) {
   try {
@@ -231,8 +258,9 @@ function extractTranscriptTokenFromNext(nextData) {
     for (const item of content.sectionListRenderer.contents) {
       const menu = item?.transcriptRenderer?.footer?.transcriptFooterRenderer?.languageMenu?.sortFilterSubMenuRenderer?.subMenuItems;
       if (Array.isArray(menu) && menu.length) {
-        const englishItem = menu.find(i => i?.title?.toLowerCase?.().includes('english') || i?.selected) || menu[0];
-        token = englishItem?.continuation?.reloadContinuationData?.continuation;
+        // Prefer currently selected language; otherwise the first entry as YouTube's default
+        const chosen = menu.find(i => i?.selected) || menu[0];
+        token = chosen?.continuation?.reloadContinuationData?.continuation;
         if (token) break;
       }
     }
@@ -257,6 +285,25 @@ function transcriptSegmentsToLines(transcriptData) {
   return lines;
 }
 
+function chooseDefaultTrack(tracks, selected) {
+  if (!Array.isArray(tracks) || !tracks.length) return null;
+  // If a selected track is provided, try to match it by vssId or languageCode
+  if (selected && (selected.vssId || selected.languageCode)) {
+    const byVss = selected.vssId ? tracks.find(t => t.vssId === selected.vssId) : null;
+    if (byVss) return byVss;
+    if (selected.languageCode) {
+      // Prefer non-ASR for the same language
+      const sameLangNonAsr = tracks.find(t => (t.languageCode === selected.languageCode) && (!t.kind || t.kind !== 'asr'));
+      if (sameLangNonAsr) return sameLangNonAsr;
+      const sameLangAny = tracks.find(t => t.languageCode === selected.languageCode);
+      if (sameLangAny) return sameLangAny;
+    }
+  }
+  // No selected match: prefer non-ASR
+  const nonAsr = tracks.filter(t => !t.kind || t.kind !== 'asr');
+  return nonAsr[0] || tracks[0] || null;
+}
+
 async function tryTranscriptViaPage(videoId) {
   try {
     await ensureInjectorLoaded();
@@ -270,7 +317,18 @@ async function tryTranscriptViaPage(videoId) {
     if (!trRes.ok) return '';
     const lines = transcriptSegmentsToLines(trRes.json || {});
     const text = lines.join('\n').trim();
-    return text || '';
+    // Try to infer language from currently selected CC, falling back to available tracks
+    let lang = 'und';
+    try {
+      const injected = await getPlayerResponseMainWorld();
+      const tracks = injected?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+      const selected = await getSelectedCaptionTrackMainWorld();
+      const pick = chooseDefaultTrack(tracks, selected);
+      if (selected && selected.translationLanguage) lang = selected.translationLanguage;
+      else if (pick && pick.languageCode) lang = pick.languageCode;
+    } catch {}
+    if (text) return { text, lang };
+    return '';
   } catch { return ''; }
 }
 
@@ -281,50 +339,35 @@ async function extractCaptionsText() {
   try {
     const { videoId } = getYouTubeVideoInfo();
     if (videoId) {
-      const txt = await tryTranscriptViaPage(videoId);
-      if (txt && txt.trim()) return txt;
+      const res = await tryTranscriptViaPage(videoId);
+      if (res && typeof res === 'object' && res.text && res.text.trim()) return res;
+      if (typeof res === 'string' && res.trim()) return { text: res, lang: 'und' };
     }
   } catch (e) { dlog('Page InnerTube path failed:', e?.message || e); }
 
   try {
     const injected = await getPlayerResponseMainWorld();
-    let tracks = injected?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
-    const isEnglish = (t) => (t.languageCode || '').toLowerCase().startsWith('en');
-    const nonAsr = tracks.filter(t => isEnglish(t) && !t.kind);
-    const asr = tracks.filter(t => isEnglish(t) && t.kind === 'asr');
-    const pick = nonAsr[0] || asr[0];
+    const tracks = injected?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+    const selected = await getSelectedCaptionTrackMainWorld();
+    const pick = chooseDefaultTrack(tracks, selected);
     if (pick && pick.baseUrl) {
-      const base = pick.baseUrl;
-      for (const fmt of ['json3','srv3','vtt']) {
-        try { const text = await fetchAndExtract(buildUrlWithFmt(base, fmt)); if (text.trim()) return text; } catch {}
+      let base = pick.baseUrl;
+      let finalLang = pick.languageCode || 'und';
+      if (selected && selected.translationLanguage) {
+        base = appendParam(base, 'tlang', selected.translationLanguage);
+        finalLang = selected.translationLanguage;
       }
-    }
-    if (!pick && tracks.length) {
-      for (const t of tracks) {
-        if (!t.baseUrl) continue;
-        const baseT = appendParam(t.baseUrl, 'tlang', 'en');
-        for (const fmt of ['json3','vtt']) {
-          try { const text = await fetchAndExtract(buildUrlWithFmt(baseT, fmt)); if (text.trim()) return text; } catch {}
-        }
+      for (const fmt of ['json3','srv3','vtt']) {
+        try {
+          const text = await fetchAndExtract(buildUrlWithFmt(base, fmt));
+          if (text && text.trim()) return { text, lang: finalLang };
+        } catch {}
       }
     }
   } catch (e) { dlog('Player response method failed:', e?.message || e); }
 
   const { videoId } = getYouTubeVideoInfo();
   if (!videoId) throw new Error(t('error_no_video'));
-  const tries = [
-    `https://www.youtube.com/api/timedtext?lang=en&v=${encodeURIComponent(videoId)}&fmt=json3`,
-    `https://www.youtube.com/api/timedtext?lang=en&kind=asr&v=${encodeURIComponent(videoId)}&fmt=json3`,
-    `https://www.youtube.com/api/timedtext?lang=en-US&v=${encodeURIComponent(videoId)}&fmt=json3`,
-    `https://www.youtube.com/api/timedtext?lang=en-GB&v=${encodeURIComponent(videoId)}&fmt=json3`,
-    `https://www.youtube.com/api/timedtext?tlang=en&v=${encodeURIComponent(videoId)}&fmt=json3`,
-    `https://www.youtube.com/api/timedtext?tlang=en&v=${encodeURIComponent(videoId)}&fmt=vtt`,
-    `https://www.youtube.com/api/timedtext?lang=en&v=${encodeURIComponent(videoId)}&fmt=vtt`,
-    `https://www.youtube.com/api/timedtext?lang=en&kind=asr&v=${encodeURIComponent(videoId)}&fmt=vtt`,
-  ];
-  for (const url of tries) {
-    try { const text = await fetchAndExtract(url); if (text && text.trim()) return text; } catch {}
-  }
   throw new Error(t('error_no_captions'));
 }
 
