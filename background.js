@@ -7,7 +7,7 @@ const DEFAULT_SETTINGS = {
   apiKey: '',
   model: 'gemini-2.5-flash',
   // New: allow different models per role (fallback to `model`)
-  modelFirst: 'gemini-2.5-flash-lite-preview-06-17',
+  modelFirst: 'gemini-2.5-flash-lite',
   modelSecond: 'gemini-2.5-flash',
   accent: 'us', // 'us' or 'uk'
   // New: definition/notes language for cards. 'auto' follows browser language on first run.
@@ -30,11 +30,29 @@ async function setSettings(next) {
 chrome.runtime.onInstalled.addListener(async (details) => {
   const s = await getSettings();
   await setSettings(s);
+  try { await cleanupStorage(); } catch {}
   // Only open options page on first install, not on every update/reload
   if (details.reason === 'install' && !s.apiKey) {
     try { await chrome.runtime.openOptionsPage(); } catch (e) {}
   }
 });
+
+// Also clean on service worker startup
+try {
+  chrome.runtime.onStartup.addListener(async () => {
+    try { await cleanupStorage(); } catch {}
+  });
+} catch {}
+
+async function cleanupStorage() {
+  try {
+    const all = await chrome.storage.local.get(null);
+    const badKeys = Object.keys(all || {}).filter(k => k === 'CCAPTIPREPS:video:' || k === 'CCAPTIPREPS:video:null' || k === 'CCAPTIPREPS:video:undefined');
+    if (badKeys.length) {
+      await chrome.storage.local.remove(badKeys);
+    }
+  } catch {}
+}
 
 // Open modal in the active tab when the action is clicked
 chrome.action.onClicked.addListener(async (tab) => {
@@ -189,30 +207,33 @@ function buildPrompts(role, data, opts) {
   if (role === 'first') {
     const { subtitlesText, captionLang, maxItems = 60 } = data;
     const langHint = captionLang && typeof captionLang === 'string' && captionLang.trim() ? captionLang : 'auto-detect';
-    const system = `You are an expert vocabulary curator. Focus strictly on the specified source language (source: ${langHint}).`;
+    const system = `You are an expert segmenter and vocabulary curator. Work only within the detected source language (source: ${langHint}). Extract learnable units that maximize pedagogical value for a learner.`;
 
     const langGate = (() => {
       const s = normalizeLang(langHint);
-      if (s === 'en') return `Only include ENGLISH words/phrases. Ignore transliterations or borrowings from other languages. Terms must be A–Z letters (with apostrophes/hyphens allowed).`;
-      if (s === 'ja') return `Only include JAPANESE terms. Prefer items containing kana (ひらがな/カタカナ). Do NOT include Chinese Pinyin or romaji-only as "term"; keep original script.`;
-      if (s === 'zh_CN' || s === 'zh_TW') return `Only include CHINESE terms. Keep "term" in Han characters (and necessary separators). Do NOT include Japanese-specific kana or romaji.`;
-      if (s === 'ko') return `Only include KOREAN terms (Hangul). Do NOT include romaja as the "term".`;
+      if (s === 'en') return `Keep ENGLISH originals only. Do not output transliterations. Allow apostrophes/hyphens.`;
+      if (s === 'ja') return `Keep JAPANESE originals only. Use the exact surface form from the transcript (kanji/kana mix). Do not output romaji as term. Do not exclude kanji-only items if they are common words.`;
+      if (s === 'zh_CN' || s === 'zh_TW') return `Keep CHINESE originals only (Han characters). Mixed strings with Latin digits are allowed if the core is Chinese. Never output pinyin as term.`;
+      if (s === 'ko') return `Keep KOREAN originals only (Hangul). Never output romanization as term.`;
+      if (s === 'ru') return `Keep RUSSIAN originals only (Cyrillic). Do not output Latin transliteration.`;
+      if (s === 'fr' || s === 'de' || s === 'es') return `Keep originals in that language/script. Exclude English words/brand names unless widely lexicalized; keep native diacritics (é, ä, ñ, ß).`;
       return `Only include terms clearly in the source language.`;
     })();
 
-    const user = `Task: From the transcript below, extract high-value words and short expressions in the ORIGINAL transcript language. Keep "term" EXACTLY as it appears in the transcript (original writing). Exclude trivial/basic items (e.g., greetings, fillers, very common object words).
+    const user = `Task: From the transcript below, extract high-value WORDS and short PHRASES strictly in the ORIGINAL transcript language. Set "term" to the exact SURFACE string as it appears in the transcript. Exclude fillers, interjections, bare function words, and trivial greetings.
 
 Return JSON strictly with this shape:
 {
   "items": [ { "term": string, "type": "word"|"phrase", "freq": number } ]
 }
-Rules:
-- Only include a term if the exact string occurs in the transcript. For Latin scripts, match case-insensitively and as a whole word/phrase; for CJK/KO, substring match.
-- Rank by usefulness/frequency in THIS transcript, not general corpora.
-- Avoid overly-rare named entities unless broadly useful.
-- Prefer multi-word expressions if idiomatic or hard to translate.
-- Merge inflections/variants into one lemma when obvious.
-- freq is a rough integer count/weight.
+Selection rules:
+- Evidence: Include a term only if the exact string occurs in the transcript. For Latin/Cyrillic scripts, match case-insensitively on whole word/phrase boundaries; for CJK/Korean, substring match is acceptable.
+- Utility ranking: Rank by teaching value within THIS transcript: semantic density > idiomaticity/collocation > local frequency. Avoid very rare named entities unless broadly useful.
+- Multiword expressions: Prefer if idiomatic or hard to translate literally.
+- Morphology: Do NOT rewrite to lemmas in output. Keep surface form in "term". Internally, you may consider lemma for ranking but NOT for output.
+- Stop items: Avoid common fillers/backchannels and bare function words. Examples — en: uh/um/like/you know; ja: えっと/あの/まあ; ko: 어/음/그냥/막; ru: ну/типа/как бы; fr: euh/bah/ben/du coup; de: äh/ähm/also; es: eh/pues/bueno/o sea; zh: 嗯/啊/就是/然后。 Only include them if part of a fixed expression with content.
+- Cross-language noise: Exclude brand names, gamer tags, hashtags, model numbers, timestamps, and English borrowings unless they are widely lexicalized in the source language.
+- freq is a rough integer count/weight in this transcript.
 - Limit items to about ${maxItems}.
 - Language gate: ${langGate}
 - If uncertain, return an empty list rather than guessing.
@@ -222,36 +243,52 @@ Transcript (language: ${langHint}; may be lightly noisy):\n\n${subtitlesText}`;
   } else if (role === 'second') {
     const { selected, captionLang } = data;
     const accentLabel = accent === 'uk' ? 'British' : 'American';
-    const srcLang = normalizeLang(captionLang);
+    // Infer source language from selected terms to avoid cross-language contamination
+    let srcLang = normalizeLang(captionLang);
+    try {
+      const inferred = inferLangFromSelected(selected);
+      if (inferred && inferred !== 'und') srcLang = inferred;
+    } catch {}
     const gloss = normalizeLang(glossLang);
     const glossLabel = humanLabelForLang(gloss);
     const srcLabel = humanLabelForLang(srcLang);
     const pronGuide = pronunciationGuide(srcLang, accentLabel);
+    const readGuide = readingGuide(srcLang);
 
-    const system = `You are a concise lexicographer. Produce accurate pronunciation and succinct meanings.`;
+    const system = `You are a multilingual lexicographer. Produce accurate, compact learner cards with source-true pronunciation and meanings constrained by context.`;
 
-    // Simplify examples to reduce hallucination: always 2 lines (source, translation)
-    const exampleRule = `Provide exactly 2 example PAIRS per item. For each pair, output a SINGLE STRING with TWO lines separated by a newline ("\n"):
+    // Examples: unify to 2 lines for all languages (no pronunciation line in examples)
+    const exampleRule = `Provide exactly 2 example PAIRS per item. For each pair, output a SINGLE STRING with TWO lines ("\\n"):
   line 1: a natural sentence in ${srcLabel}
   line 2: its concise ${glossLabel} translation
-No bullets, numbering, or extra notes.`;
+Do NOT include a pronunciation/reading line in examples.`;
 
     const defRule = (gloss === 'zh_CN' || gloss === 'zh_TW')
       ? `Write the "definition" and "notes" in Chinese (${gloss === 'zh_TW' ? 'Traditional' : 'Simplified'}).`
       : `Write the "definition" and "notes" in ${glossLabel}.`;
 
-    const ipaRule = `For pronunciation fields: ${pronGuide}`;
-    const accentNote = (srcLang === 'en') ? `Use ${accentLabel} pronunciation.` : `Do NOT include English accent notes for non-English.`;
+    // Updated pronunciation rules for each language
+    const ipaRule = `Pronunciation fields:
+- "reading": ${readGuide}
+- "ipa": ${pronGuide}
+Language-specific fill rules:
+- Chinese: provide "reading" (Pinyin); leave "ipa" empty.
+- Japanese: provide "reading" (kana + NHK pitch); leave "ipa" empty.
+- Korean: provide "reading" (Revised Romanization); leave "ipa" empty.
+- English: leave "reading" empty; provide both "ipa_us" and "ipa_uk".
+- Russian/French/German/Spanish: leave "reading" empty; provide "ipa".`;
+    const accentNote = (srcLang === 'en') ? `Include both US and UK variants ("ipa_us" and "ipa_uk"). Set "ipa" to match primary variant.` : `Do NOT include English accent notes for non-English.`;
 
     const posRule = (gloss === 'zh_CN' || gloss === 'zh_TW')
-      ? 'Use POS in Chinese, e.g., 名词/动词/形容词/副词/短语/惯用语/助词/连词/叹词/敬语/形式体/感叹等。Do not output English labels like "Verb".'
-      : `Use POS in ${glossLabel}; do not output English labels when ${glossLabel} is not English.`;
+      ? 'Use POS in Chinese（名词/动词/形容词/副词/短语/惯用语/助词/连词/叹词/敬语等）。名词可在 POS 或 notes 标明性别/可数性；动词可在 notes 标明变位特性/体。'
+      : `Use POS in ${glossLabel}. Keep POS concise. Add gender/case/valency in notes if needed.`;
 
     const critical = `Critical constraints:
-- All pronunciation fields must reflect the SOURCE language (${srcLabel}), NOT the gloss language. Never romanize Chinese for Japanese terms; e.g., "季節" must be "kisetsu", not Chinese Pinyin.
-- If the script overlaps across languages (e.g., Han characters in Japanese), infer reading from the SOURCE language only.
-- For English source: include both US and UK variants.
-- Keep outputs compact and clean; no brackets, slashes, or extra commentary in fields.`;
+- Ground the chosen sense in the provided evidence (if any). Do NOT output an unrelated sense; if truly ambiguous, leave a minimal definition and add "insufficient_context" to notes.
+- All pronunciation fields must reflect the SOURCE language (${srcLabel}), NOT the gloss language. When scripts overlap (e.g., Han characters in Japanese), use the reading of the SOURCE language only.
+- For English source: include both US and UK variants as separate fields.
+- Examples must be written in ${srcLabel} ONLY. Do not mix other languages or transliterations in examples.
+- Keep outputs compact and clean; no list markers, brackets, or slashes inside fields.`;
 
     // Evidence context: up to two transcript lines per item, when available
     const ctx = Array.isArray(data && data.context) ? data.context : [];
@@ -261,34 +298,42 @@ No bullets, numbering, or extra notes.`;
       return head + (lines.length ? `\n- ${lines.join('\n- ')}` : '\n- (no match)');
     }).join('\n') + '\n' : '';
 
-    const user = `Task: For each item, produce pronunciation (fields), part of speech (in the CHOSEN GLOSS LANGUAGE), a short learner-friendly definition anchored to the provided evidence (if any), two example pairs, and a brief note for common confusions/culture if relevant. Keep it compact.
+    const user = `Task: For each input item, produce source-true pronunciation (use "reading" for kana/Hangul/Pinyin languages; include "ipa" where customary — include for Korean), a POS label in the chosen gloss language, a short learner-friendly definition constrained by the evidence, exactly two example pairs, and a brief note for key grammar/culture/pitfalls if relevant. Provide a small "grammar" object when relevant (e.g., gender/plural for DE/FR/ES; aspect for RU; separability for DE; politeness/lemma for JA/KO).
 
 ${defRule}
 ${exampleRule}
 ${ipaRule}
 ${accentNote}
 ${posRule}
+
+Notes guidelines:
+- Korean: Include grammar notes (honorifics, irregular verbs, sound changes), usage patterns, or cultural context when relevant. Only mention standard pronunciation (표준발음) if there are notable sound changes or irregular pronunciations.
+- Spanish: Beyond gender/number, include usage registers (formal/informal), regional variations, idioms, false friends, or cultural context when helpful.
+- All languages: Focus on learner-relevant information that aids comprehension and proper usage.
+
 ${critical}
 ${evidence}
 
-Return JSON strictly with this shape and cardinality (exactly one card per input item, same order; do not add or drop items). Always include "ipa"; if source is English, also include both "ipa_us" and "ipa_uk":
+Return JSON strictly with this shape and cardinality (one card per input item, same order; do not add or drop items). For English, include both "ipa_us" and "ipa_uk" and set "ipa" to match the primary accent. For Chinese/Japanese/Korean, fill "reading" and leave "ipa" empty. For Russian/French/German/Spanish, leave "reading" empty and fill "ipa".
 {
   "cards": [ {
     "term": string,
-    "ipa": string,            // pronunciation: see rules (for English, match the primary accent)
-    "ipa_us": string,         // optional; required when source is English
-    "ipa_uk": string,         // optional; required when source is English
-    "pos": string,            // part-of-speech label in ${glossLabel}
-    "definition": string,     // concise learner definition (${glossLabel})
-    "examples": string[],     // exactly 2 strings; each has 2 lines as specified above
-    "notes": string           // may be empty (${glossLabel})
+    "reading": string,        // native reading when applicable (kana+pitch/RR/Pinyin); else empty
+    "ipa": string,            // pronunciation string per language rules; empty for CJK/Korean
+    "ipa_us": string,         // required when source is English; otherwise empty or omitted
+    "ipa_uk": string,         // required when source is English; otherwise empty or omitted
+    "pos": string,            // POS label in ${glossLabel}
+    "definition": string,     // concise learner definition (${glossLabel}) aligned to evidence
+    "examples": string[],     // exactly 2 strings; each with TWO lines (src + translation); NO pronunciation line
+    "notes": string,          // may be empty (${glossLabel}); include key inflection/usage notes
+    "grammar": object         // optional structured hints (gender/plural/aspect/separable/politeness/etc.)
   } ]
 }
 
-Additional formatting rules:
+Formatting rules:
 - Output raw JSON only (no Markdown fences).
 - Do not use list markers (-, *, 1.) inside strings.
-- Keep pronunciation clean: no slashes or brackets.
+- Keep pronunciation clean: no surrounding slashes. Square brackets are allowed only for Japanese pitch numbers in readings (e.g., [0]).
 
 Items:\n${selected.map((t, i) => `${i + 1}. ${t.term}`).join('\n')}`;
     return { prompt: composeChat(system, user) };
@@ -344,19 +389,19 @@ function humanLabelForLang(norm) {
 function pronunciationGuide(srcLang, accentLabel) {
   const s = normalizeLang(srcLang);
   if (s === 'en') {
-    return `IPA (broad). No slashes/brackets. Include ${accentLabel} variant. Keep only primary stress (ˈ).`;
+    return `IPA (broad). No slashes/brackets. Provide both US and UK variants; mark primary stress (ˈ).`;
   }
   if (s === 'zh_CN' || s === 'zh_TW') {
-    return 'Hanyu Pinyin with tone marks (e.g., mā, má, mǎ, mà). No tone numbers. No IPA. Tone mark placement priority a > o > e > i > u > ü (choose the highest-ranked vowel in the syllable, e.g., shui → shuǐ). Use ü (not v).';
+    return 'Leave "ipa" field empty. Chinese uses Pinyin in "reading" field only.';
   }
   if (s === 'ja') {
-    return 'Hepburn with macrons for long vowels: おう/おお → ō, うう → ū; keep ei as ei (e.g., sensei). Do NOT use ā/ī/ē. Use precomposed ō (U+014D)/Ō (U+014C), ū (U+016B)/Ū (U+016A). No IPA. No dashes or kana long mark (ー).';
+    return 'Leave "ipa" field empty. Japanese uses kana with NHK pitch accent in "reading" field only.';
   }
   if (s === 'ko') {
-    return 'Revised Romanization of Korean (RR). ㅓ=eo, ㅗ=o, ㅡ=eu, ㅜ=u, ㅐ=ae, ㅔ=e; final ㄹ as l, syllable-initial/intervocalic ㄹ as r. No diacritics, no apostrophes, no IPA.';
+    return 'Leave "ipa" field empty. Korean uses Revised Romanization in "reading" field only.';
   }
   if (s === 'ru') {
-    return 'IPA (broad), Moscow standard. Mark stress. Use palatalization ʲ (e.g., /nʲ tʲ sʲ/). You may minimize unstressed vowel reduction, but keep readability. No slashes/brackets.';
+    return 'IPA (broad), Moscow standard. Mark stress. Use palatalization ʲ (e.g., nʲ tʲ sʲ). Ensure ё is correctly represented in the source term. No slashes/brackets.';
   }
   if (s === 'fr') {
     return 'IPA (broad), Metropolitan French. Include nasal vowels (ɑ̃ ɔ̃ ɛ̃ œ̃) and uvular ʁ. Do NOT mark stress. Liaison optional. No slashes/brackets.';
@@ -365,9 +410,20 @@ function pronunciationGuide(srcLang, accentLabel) {
     return 'IPA (broad), Standard German. Mark long vowels with ː when needed. Include y, ø, œ; ich/ach as ç/x. No slashes/brackets.';
   }
   if (s === 'es') {
-    return 'IPA (learner-friendly), neutral seseo baseline. r/rr as ɾ/r. x as x (use [h] in many dialects, but keep x for consistency). No slashes/brackets.';
+    return 'IPA (broad), neutral seseo baseline. Mark stress. No slashes/brackets.';
   }
   return 'Use the standard romanization or IPA customary for the language; clean text without slashes/brackets.';
+}
+
+function readingGuide(srcLang) {
+  const s = normalizeLang(srcLang);
+  if (s === 'ja') return 'Use full kana reading (かな／カナ) with NHK-style pitch accent number in square brackets, e.g., あめ [0]. Do not use romaji as the main reading.';
+  if (s === 'ko') return 'Use Revised Romanization (RR) strictly. 시=si, 스=seu. Never mix IPA or other romanization systems.';
+  if (s === 'zh_CN' || s === 'zh_TW') return 'Use Hanyu Pinyin with tone marks (mā/má/mǎ/mà). No tone numbers; use ü. Mark common sandhi in notes if necessary.';
+  if (s === 'ru' || s === 'fr' || s === 'de') return 'Leave reading field empty; use IPA in the ipa field.';
+  if (s === 'es') return 'Leave reading field empty; use IPA in the ipa field.';
+  if (s === 'en') return 'Leave reading field empty; use IPA in us/uk variants.';
+  return 'Use the language-appropriate native reading when it exists; otherwise leave empty.';
 }
 
 function alignCardsToSelected(parsed, selected, srcLang) {
@@ -396,23 +452,108 @@ function postProcessCandidates(parsed, subtitlesText, captionLang, maxItems) {
     const out = { ...parsed };
     const items = Array.isArray(out.items) ? out.items : [];
     const text = String(subtitlesText || '');
-    if (!text || !items.length) return parsed;
     const lang = normalizeLang(captionLang);
-    const isLatin = ['en','fr','de','es','ru'].includes(lang);
+    if (!text) return parsed;
+    if (!items.length) {
+      // Build naive candidates directly from transcript to avoid empty selection UI
+      const naive = buildNaiveCandidatesFromTranscript(text, lang, maxItems);
+      if (naive && naive.length) return { items: naive };
+      return parsed;
+    }
+    
     const lines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-    const contains = (term) => {
+    const fullText = lines.join(' ');
+    const contains = (rawTerm) => {
+      const term = String(rawTerm || '').trim();
       if (!term) return false;
-      if (isLatin) {
-        const esc = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const re = new RegExp(`(^|[^A-Za-z0-9])${esc}([^A-Za-z0-9]|$)`, 'i');
-        return lines.some(l => re.test(l));
+      // For CJK/Hangul, substring is acceptable across the whole transcript
+      if (lang === 'ja' || lang === 'ko' || lang === 'zh_CN' || lang === 'zh_TW') {
+        return fullText.includes(term);
       }
-      return lines.some(l => l.includes(term));
+      // For Latin/Cyrillic scripts: use Unicode-aware word boundary surrogate
+      try {
+        const esc = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        // Treat letters/marks/digits/'/- as part of words; negative class around the term
+        const re = new RegExp(`(^|[^\\p{L}\\p{M}\\p{N}'-])${esc}([^\\p{L}\\p{M}\\p{N}'-]|$)`, 'iu');
+        return re.test(fullText);
+      } catch {
+        // Fallback: case-insensitive substring on the fused text
+        return fullText.toLowerCase().includes(term.toLowerCase());
+      }
     };
-    const filtered = items.filter(it => contains(String(it.term || '').trim()));
+
+    // Script gate: drop items whose script clearly does not match the source language
+    const hasAny = (re, s) => re.test(s);
+    const scriptOk = (t) => {
+      const s = String(t || '').trim();
+      if (!s) return false;
+      switch (lang) {
+        case 'ja':
+          // Require at least one Hiragana/Katakana or CJK
+          return hasAny(/[\u3040-\u30FF\u4E00-\u9FFF]/u, s);
+        case 'ko':
+          // Require at least one Hangul
+          return hasAny(/[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF]/u, s);
+        case 'zh_CN':
+        case 'zh_TW':
+          // Require at least one Han character
+          return hasAny(/[\u4E00-\u9FFF]/u, s);
+        case 'ru':
+          // Require at least one Cyrillic
+          return hasAny(/[\u0400-\u04FF]/u, s);
+        default:
+          // Latin-script languages (en/fr/de/es) pass
+          return true;
+      }
+    };
+
+    // Basic stopword/filtering to reduce filler noise per language
+    const stop = buildStoplist(lang);
+    const isStop = (t) => {
+      const s = String(t || '').trim();
+      if (!s) return true;
+      // Drop terms that are mostly digits/punct
+      const alnum = s.replace(/[^\p{L}\p{M}\p{N}]+/gu, '');
+      if (!alnum) return true;
+      const digitRatio = (s.replace(/[^0-9]/g, '').length) / s.length;
+      if (digitRatio > 0.5) return true;
+      const key = s.toLowerCase();
+      return stop.has(key);
+    };
+
+    const filtered = items
+      .filter(it => contains(String(it.term || '').trim()))
+      .filter(it => !isStop(it.term))
+      .filter(it => scriptOk(it.term));
     // Optional: cap length again and sort by provided freq desc
     filtered.sort((a, b) => (b.freq || 0) - (a.freq || 0));
-    out.items = typeof maxItems === 'number' ? filtered.slice(0, maxItems) : filtered;
+    let finalList = typeof maxItems === 'number' ? filtered.slice(0, maxItems) : filtered;
+
+    // Fallback: if filtering wipes out everything (e.g., model lemmatized/rewrote terms), degrade constraints to avoid empty UI
+    if (!finalList.length) {
+      const looseContains = (rawTerm) => {
+        const term = String(rawTerm || '').trim();
+        if (!term) return false;
+        try {
+          return fullText.toLowerCase().includes(term.toLowerCase());
+        } catch { return false; }
+      };
+      const minimal = items
+        .filter(it => looseContains(String(it.term || '')))
+        .filter(it => !isStop(it.term))
+        .filter(it => scriptOk(it.term));
+      minimal.sort((a, b) => (b.freq || 0) - (a.freq || 0));
+      finalList = typeof maxItems === 'number' ? minimal.slice(0, maxItems) : minimal;
+    }
+
+    // Last resort: if still empty, take top-N raw items with sane characters
+    if (!finalList.length) {
+      const sane = (s) => /[\p{L}\p{M}]/u.test(String(s || ''));
+      const basic = items.filter(it => sane(it.term)).slice(0, Math.max(10, Math.min(40, maxItems || 40)));
+      finalList = basic;
+    }
+
+    out.items = finalList;
     return out;
   } catch { return parsed; }
 }
@@ -441,8 +582,19 @@ function postProcessCards(parsed, srcLang, gloss, accent) {
     const posMapTW = {
       '名词': '名詞', '动词': '動詞', '形容词': '形容詞', '副词': '副詞', '代词': '代名詞', '介词': '介系詞', '连词': '連接詞', '叹词': '感嘆詞', '助词': '助詞', '量词': '量詞', '限定词': '限定詞', '冠词': '冠詞', '短语': '片語', '惯用语': '慣用語', '表达': '表達', '敬语': '敬語', '助动词': '助動詞'
     };
+    const lang = normalizeLang(srcLang);
     out.cards = cards.map((c) => {
       const cc = { ...c };
+      // Sanitize and normalize expected fields
+      if (!cc.reading) cc.reading = '';
+      // Drop redundant reading when identical to term for languages where reading often equals surface form
+      try {
+        const lang2 = normalizeLang(srcLang);
+        const map2 = (s) => String(s || '').trim();
+        if ((lang2 === 'ko' || lang2 === 'ja' || lang2 === 'zh_CN' || lang2 === 'zh_TW') && map2(cc.reading) && map2(cc.term) && map2(cc.reading) === map2(cc.term)) {
+          cc.reading = '';
+        }
+      } catch {}
       // POS localization fallback for Chinese
       if (isZh && cc.pos) {
         const key = lower(cc.pos).replace(/\./g, '').trim();
@@ -452,23 +604,122 @@ function postProcessCards(parsed, srcLang, gloss, accent) {
         }
         if (mapped) cc.pos = (gloss === 'zh_TW') ? (posMapTW[mapped] || mapped) : mapped;
       }
-      // Ensure English has both US/UK fields and pick primary in ipa
-      if (normalizeLang(srcLang) === 'en') {
+      // Ensure English has both US/UK fields and force primary accent into ipa
+      if (lang === 'en') {
         const us = map(cc.ipa_us);
         const uk = map(cc.ipa_uk);
-        if (!cc.ipa && (us || uk)) {
-          cc.ipa = (accent === 'uk') ? (uk || us) : (us || uk);
-        }
+        cc.ipa = us || uk; // Remove accent preference logic
+      }
+      // For Korean: ensure ipa is empty
+      if (lang === 'ko') {
+        cc.ipa = ''; // Force empty for Korean
+        // Let model decide whether to include standard pronunciation or other notes
+      }
+      // For Chinese and Japanese: ensure ipa is empty
+      if (lang === 'zh_CN' || lang === 'zh_TW' || lang === 'ja') {
+        cc.ipa = '';
       }
       // Trim strings
-      ['term','ipa','ipa_us','ipa_uk','pos','definition','notes'].forEach(f => { if (cc[f]) cc[f] = map(cc[f]); });
-      if (Array.isArray(cc.examples)) cc.examples = cc.examples.map(x => map(x)).slice(0, 2);
-      else cc.examples = [];
+      ['term','reading','ipa','ipa_us','ipa_uk','pos','definition','notes'].forEach(f => { if (cc[f]) cc[f] = map(cc[f]); });
+      // Normalize examples: always 2 lines per block (src + translation); drop any pronunciation line
+      cc.examples = normalizeExamples(cc.examples, lang);
       return cc;
     });
     return out;
   } catch {
     return parsed;
+  }
+}
+
+function normalizeExamples(examples, srcLang) {
+  try {
+    const list = Array.isArray(examples) ? examples : [];
+    const norm = list.slice(0, 2).map(raw => {
+      const lines = String(raw || '').split(/\r?\n/).map(s => s.replace(/^\s*[-*\d\.)\u2022\u00B7]?\s*/, '')).map(s => s.trim()).filter(Boolean);
+      const l1 = lines[0] || '';
+      const l2 = lines[1] || '';
+      // Force exactly two lines when possible; ignore any extra lines
+      return [l1, l2].filter(Boolean).join('\n');
+    });
+    return norm;
+  } catch { return Array.isArray(examples) ? examples.slice(0, 2) : []; }
+}
+
+function inferLangFromSelected(selected) {
+  try {
+    const list = Array.isArray(selected) ? selected : [];
+    if (!list.length) return 'und';
+    const terms = list.map(it => String((it && it.term) || '').trim()).filter(Boolean).join(' ');
+    if (!terms) return 'und';
+    const has = (re) => re.test(terms);
+    if (/[\u3040-\u30FF]/u.test(terms) || /[\u30A0-\u30FF]/u.test(terms)) return 'ja';
+    if (/[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF]/u.test(terms)) return 'ko';
+    if (/[\u4E00-\u9FFF]/u.test(terms)) return 'zh_CN'; // default to Simplified for UI
+    if (/[\u0400-\u04FF]/u.test(terms)) return 'ru';
+    // Latin-based: try to guess among es/fr/de/en via diacritics/signatures
+    const lower = terms.toLowerCase();
+    if (/[ñáéíóúü]/i.test(terms)) return 'es';
+    if (/[éèêëàâîïôùûç]/i.test(terms)) return 'fr';
+    if (/[äöüß]/i.test(terms)) return 'de';
+    // If contains many English function words, lean en
+    const enSignals = ['the','and','of','to','in','for','on','with','as'];
+    let hits = 0; for (const w of enSignals) { if (lower.includes(` ${w} `)) hits++; }
+    if (hits >= 2) return 'en';
+    // Default Latin -> es as a safe learner bias when diacritics include á/í/ó/ú
+    if (/[áíóú]/i.test(terms)) return 'es';
+    return 'en';
+  } catch { return 'und'; }
+}
+
+function buildNaiveCandidatesFromTranscript(text, lang, maxItems = 60) {
+  try {
+    const s = String(text || '');
+    if (!s.trim()) return [];
+    const L = normalizeLang(lang);
+    const freq = new Map();
+    const push = (tok) => {
+      const t = String(tok || '').trim();
+      if (!t) return;
+      const k = (L === 'en' || L === 'fr' || L === 'de' || L === 'es' || L === 'ru') ? t.toLowerCase() : t;
+      freq.set(k, (freq.get(k) || 0) + 1);
+    };
+    if (L === 'ja') {
+      const m = s.match(/[\u3040-\u30FF\u4E00-\u9FFF]+/gu) || [];
+      m.filter(x => x.length >= 2 && x.length <= 8).forEach(push);
+    } else if (L === 'ko') {
+      const m = s.match(/[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF]+/gu) || [];
+      m.filter(x => x.length >= 2 && x.length <= 10).forEach(push);
+    } else if (L === 'zh_CN' || L === 'zh_TW') {
+      const m = s.match(/[\u4E00-\u9FFF]+/gu) || [];
+      m.filter(x => x.length >= 2 && x.length <= 8).forEach(push);
+    } else if (L === 'ru') {
+      const m = s.match(/[\u0400-\u04FF]+/gu) || [];
+      m.filter(x => x.length >= 3).forEach(push);
+    } else {
+      const m = s.match(/[\p{L}\p{M}][\p{L}\p{M}'-]*/gu) || [];
+      m.filter(x => x.length >= 3).forEach(push);
+    }
+    // Build items sorted by frequency
+    const items = Array.from(freq.entries())
+      .map(([term, count]) => ({ term, type: 'word', freq: count }))
+      .sort((a, b) => (b.freq || 0) - (a.freq || 0));
+    return items.slice(0, Math.max(10, Math.min(80, maxItems || 60)));
+  } catch { return []; }
+}
+
+function buildStoplist(lang) {
+  const L = (s) => new Set(s.map(x => x.toLowerCase()));
+  switch (normalizeLang(lang)) {
+    case 'en': return L(['uh','um','er','ah','oh','like','you know','i mean','kind of','sort of','okay','ok','so','well']);
+    case 'ja': return L(['えっと','ええと','あの','その','まぁ','まあ','うん','あぁ','はい']);
+    case 'ko': return L(['어','음','그냥','막','뭐지','저기','그러니까','근데','아니','자','응']);
+    case 'ru': return L(['ну','типа','как бы','ээ','эм','блин','ладно','короче']);
+    case 'fr': return L(['euh','bah','ben','du coup','genre','en fait','bref','voilà']);
+    case 'de': return L(['äh','ähm','halt','eben','so','naja','also','ja','nee','doch']);
+    case 'es': return L(['eh','este','pues','bueno','o sea','vale','ya','entonces']);
+    case 'zh_CN':
+    case 'zh_TW': return L(['嗯','啊','这个','那個','那个','這個','就是','然后','然後','吧','呃','嘛']);
+    default: return L([]);
   }
 }
 
@@ -602,9 +853,68 @@ async function listModels({ provider, baseUrl, apiKey }) {
 }
 
 function extractJson(text) {
-  // Try to find the first {...} or [{...}] JSON block
-  const match = text.match(/[\{\[][\s\S]*[\}\]]/);
-  return match ? match[0] : text;
+  const raw = String(text || '');
+
+  // Helper: balanced JSON block finder starting at first { or [
+  function findBalancedJsonBlock(s) {
+    const str = String(s || '');
+    let start = str.search(/[\{\[]/);
+    if (start < 0) return null;
+    let depthObj = 0, depthArr = 0;
+    let inStr = false, quote = '', esc = false;
+    for (let i = start; i < str.length; i++) {
+      const ch = str[i];
+      if (inStr) {
+        if (esc) { esc = false; continue; }
+        if (ch === '\\') { esc = true; continue; }
+        if (ch === quote) { inStr = false; continue; }
+        continue;
+      }
+      if (ch === '"' || ch === '\'' ) { inStr = true; quote = ch; continue; }
+      if (ch === '{') depthObj++;
+      else if (ch === '}') depthObj--;
+      else if (ch === '[') depthArr++;
+      else if (ch === ']') depthArr--;
+      if (depthObj < 0 || depthArr < 0) return null; // invalid
+      if (depthObj === 0 && depthArr === 0 && i > start) {
+        return str.slice(start, i + 1);
+      }
+    }
+    return null;
+  }
+
+  // 1) Collect candidates from code fences first
+  const candidates = [];
+  const fenceRe = /```(?:json|javascript|js)?\s*([\s\S]*?)```/gi;
+  let m;
+  while ((m = fenceRe.exec(raw))) {
+    const inside = String(m[1] || '').trim();
+    if (inside) candidates.push(inside);
+  }
+
+  // 2) Also consider the whole raw text
+  candidates.push(raw.trim());
+
+  // 3) For each candidate, try direct parse, then balanced block parse
+  for (const cand of candidates) {
+    // Direct parse
+    try {
+      const obj = JSON.parse(cand);
+      if (obj && (obj.cards || obj.items)) return cand;
+      // If it parses but without keys, still return as last resort
+    } catch {}
+    // Balanced block from the candidate
+    const block = findBalancedJsonBlock(cand);
+    if (block) {
+      try {
+        const obj = JSON.parse(block);
+        if (obj && (obj.cards || obj.items)) return block;
+      } catch {}
+    }
+  }
+  // 4) Final fallback: naive first {...} or [{...}] match from raw
+  const naive = raw.match(/[\{\[][\s\S]*[\}\]]/);
+  return naive ? naive[0] : raw;
 }
 
 function truncate(s, n) {

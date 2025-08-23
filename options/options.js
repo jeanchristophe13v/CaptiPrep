@@ -15,7 +15,7 @@ const DEFAULTS = {
   baseUrl: '',
   apiKey: '',
   model: 'gemini-2.5-flash',
-  modelFirst: 'gemini-2.5-flash-lite-preview-06-17',
+  modelFirst: 'gemini-2.5-flash-lite',
   modelSecond: 'gemini-2.5-flash',
   glossLang: 'auto',
   uiLang: 'auto'

@@ -1,15 +1,25 @@
 // Backend content script: caption extraction, storage, LLM calls; exposes API to UI via window.CaptiPrep.backend
 
-var CC_NS = 'CCAPTIPREPS';
-var t = (k, ...subs) => (chrome.i18n && chrome.i18n.getMessage ? chrome.i18n.getMessage(k, subs) : '') || k;
+// Prevent multiple initialization of content script
+if (window.CaptiPrepContentLoaded) {
+  return; // Exit if already loaded
+}
+window.CaptiPrepContentLoaded = true;
+
+// Avoid duplicate declarations when content script is injected multiple times
+if (!window.CC_NS) {
+  window.CC_NS = 'CCAPTIPREPS';
+}
+if (!window.t) {
+  window.t = (k, ...subs) => (chrome.i18n && chrome.i18n.getMessage ? chrome.i18n.getMessage(k, subs) : '') || k;
+}
 
 // ===== Debug helper =====
 // Avoid duplicate const redeclare when content script is injected twice
 if (!('CC_DEBUG' in window)) {
-  // eslint-disable-next-line no-var
-  var CC_DEBUG = false;
+  window.CC_DEBUG = false;
 }
-function dlog(...args) { if (CC_DEBUG) console.log('[CaptiPrep]', ...args); }
+function dlog(...args) { if (window.CC_DEBUG) console.log('[CaptiPrep]', ...args); }
 
 // ===== Settings & LLM bridge (background) =====
 async function getSettings() {
@@ -26,13 +36,13 @@ async function llmCall(role, data) {
 
 // ===== Local storage by video =====
 async function loadVideoData(videoId) {
-  const key = `${CC_NS}:video:${videoId}`;
+  const key = `${window.CC_NS}:video:${videoId}`;
   const data = await chrome.storage.local.get(key);
   return data[key] || null;
 }
 
 async function saveVideoData(videoId, patch) {
-  const key = `${CC_NS}:video:${videoId}`;
+  const key = `${window.CC_NS}:video:${videoId}`;
   const current = await loadVideoData(videoId) || {};
   const next = { ...current, ...patch };
   await chrome.storage.local.set({ [key]: next });
@@ -88,10 +98,14 @@ function getPlayerResponseMainWorld() {
   });
 }
 
-let __cc_injectorReady = null;
+// Use window property to avoid redeclaration error
+if (!window.__cc_injectorReady) {
+  window.__cc_injectorReady = null;
+}
+
 function ensureInjectorLoaded() {
-  if (__cc_injectorReady) return __cc_injectorReady;
-  __cc_injectorReady = new Promise((resolve) => {
+  if (window.__cc_injectorReady) return window.__cc_injectorReady;
+  window.__cc_injectorReady = new Promise((resolve) => {
     try {
       const s = document.createElement('script');
       s.src = chrome.runtime.getURL('page_inject.js');
@@ -102,7 +116,7 @@ function ensureInjectorLoaded() {
       resolve(true);
     }
   });
-  return __cc_injectorReady;
+  return window.__cc_injectorReady;
 }
 
 function ytApiPostMainWorld(endpoint, payload, opts = {}) {
@@ -287,21 +301,33 @@ function transcriptSegmentsToLines(transcriptData) {
 
 function chooseDefaultTrack(tracks, selected) {
   if (!Array.isArray(tracks) || !tracks.length) return null;
-  // If a selected track is provided, try to match it by vssId or languageCode
-  if (selected && (selected.vssId || selected.languageCode)) {
-    const byVss = selected.vssId ? tracks.find(t => t.vssId === selected.vssId) : null;
+  const isTranslatedSel = !!(selected && ((selected.vssId && /^a\./.test(selected.vssId)) || selected.translationLanguage));
+  const safeTracks = tracks.filter(t => !/[?&]tlang=/.test(String(t.baseUrl || '')));
+  const pool = safeTracks.length ? safeTracks : tracks;
+
+  // If a selected track is provided and not an auto-translate, try to match it by vssId or languageCode
+  if (!isTranslatedSel && selected && (selected.vssId || selected.languageCode)) {
+    const byVss = selected.vssId ? pool.find(t => t.vssId === selected.vssId) : null;
     if (byVss) return byVss;
     if (selected.languageCode) {
-      // Prefer non-ASR for the same language
-      const sameLangNonAsr = tracks.find(t => (t.languageCode === selected.languageCode) && (!t.kind || t.kind !== 'asr'));
+      const sameLangNonAsr = pool.find(t => (t.languageCode === selected.languageCode) && (!t.kind || t.kind !== 'asr'));
       if (sameLangNonAsr) return sameLangNonAsr;
-      const sameLangAny = tracks.find(t => t.languageCode === selected.languageCode);
+      const sameLangAny = pool.find(t => t.languageCode === selected.languageCode);
       if (sameLangAny) return sameLangAny;
     }
   }
-  // No selected match: prefer non-ASR
-  const nonAsr = tracks.filter(t => !t.kind || t.kind !== 'asr');
-  return nonAsr[0] || tracks[0] || null;
+
+  // If selected track is an auto-translate, try to fall back to the likely source language track
+  if (isTranslatedSel && selected && selected.languageCode) {
+    const sameLangNonAsr = pool.find(t => (t.languageCode === selected.languageCode) && (!t.kind || t.kind !== 'asr'));
+    if (sameLangNonAsr) return sameLangNonAsr;
+    const sameLangAny = pool.find(t => t.languageCode === selected.languageCode);
+    if (sameLangAny) return sameLangAny;
+  }
+
+  // Prefer non-ASR among remaining
+  const nonAsr = pool.filter(t => !t.kind || t.kind !== 'asr');
+  return nonAsr[0] || pool[0] || null;
 }
 
 async function tryTranscriptViaPage(videoId) {
@@ -311,6 +337,9 @@ async function tryTranscriptViaPage(videoId) {
     const nextRes = await ytApiPostMainWorld('/next', { ...session, videoId });
     if (!nextRes.ok) return '';
     const nextData = nextRes.json || null;
+    // IMPORTANT: the transcript panel may default to auto-translated language based on previous videos.
+    // We do NOT want translated transcripts. We’ll still read a token, but only use it as a fallback
+    // and prefer captionTracks fetch path for original captions.
     const token = extractTranscriptTokenFromNext(nextData);
     if (!token) return '';
     const trRes = await ytApiPostMainWorld('/get_transcript', { ...session, params: token });
@@ -324,8 +353,7 @@ async function tryTranscriptViaPage(videoId) {
       const tracks = injected?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
       const selected = await getSelectedCaptionTrackMainWorld();
       const pick = chooseDefaultTrack(tracks, selected);
-      if (selected && selected.translationLanguage) lang = selected.translationLanguage;
-      else if (pick && pick.languageCode) lang = pick.languageCode;
+      if (pick && pick.languageCode) lang = pick.languageCode;
     } catch {}
     if (text) return { text, lang };
     return '';
@@ -336,27 +364,15 @@ async function extractCaptionsText() {
   dlog('Starting caption extraction');
   await ensureInjectorLoaded();
 
-  try {
-    const { videoId } = getYouTubeVideoInfo();
-    if (videoId) {
-      const res = await tryTranscriptViaPage(videoId);
-      if (res && typeof res === 'object' && res.text && res.text.trim()) return res;
-      if (typeof res === 'string' && res.trim()) return { text: res, lang: 'und' };
-    }
-  } catch (e) { dlog('Page InnerTube path failed:', e?.message || e); }
-
+  // 1) Prefer direct captionTracks fetch (original captions), to avoid auto-translated transcript bleed
   try {
     const injected = await getPlayerResponseMainWorld();
     const tracks = injected?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
     const selected = await getSelectedCaptionTrackMainWorld();
     const pick = chooseDefaultTrack(tracks, selected);
     if (pick && pick.baseUrl) {
-      let base = pick.baseUrl;
-      let finalLang = pick.languageCode || 'und';
-      if (selected && selected.translationLanguage) {
-        base = appendParam(base, 'tlang', selected.translationLanguage);
-        finalLang = selected.translationLanguage;
-      }
+      const base = pick.baseUrl;
+      const finalLang = pick.languageCode || 'und';
       for (const fmt of ['json3','srv3','vtt']) {
         try {
           const text = await fetchAndExtract(buildUrlWithFmt(base, fmt));
@@ -366,9 +382,19 @@ async function extractCaptionsText() {
     }
   } catch (e) { dlog('Player response method failed:', e?.message || e); }
 
+  // 2) Fallback: transcript panel via InnerTube (may reflect current UI language; best-effort)
+  try {
+    const { videoId } = getYouTubeVideoInfo();
+    if (videoId) {
+      const res = await tryTranscriptViaPage(videoId);
+      if (res && typeof res === 'object' && res.text && res.text.trim()) return res;
+      if (typeof res === 'string' && res.trim()) return { text: res, lang: 'und' };
+    }
+  } catch (e) { dlog('Page InnerTube path failed:', e?.message || e); }
+
   const { videoId } = getYouTubeVideoInfo();
-  if (!videoId) throw new Error(t('error_no_video'));
-  throw new Error(t('error_no_captions'));
+  if (!videoId) throw new Error(window.t('error_no_video'));
+  throw new Error(window.t('error_no_captions'));
 }
 
 // ===== Expose backend to UI =====

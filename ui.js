@@ -50,6 +50,7 @@ var modalOpen = typeof modalOpen !== 'undefined' ? modalOpen : false;
 var uiRoot = typeof uiRoot !== 'undefined' ? uiRoot : null;
 var buildWatchTimer = typeof buildWatchTimer !== 'undefined' ? buildWatchTimer : null; // polling to reflect background building status
 var selectWatchTimer = typeof selectWatchTimer !== 'undefined' ? selectWatchTimer : null; // polling to reflect background selecting status
+var navWatchTimer = typeof navWatchTimer !== 'undefined' ? navWatchTimer : null; // watch YouTube SPA navigation for videoId changes
 var currentState = typeof currentState !== 'undefined' ? currentState : {
   videoId: null,
   title: null,
@@ -84,6 +85,8 @@ async function openModal() {
   pauseActiveVideo();
   try { maybeShowWhatsNew(); } catch {}
   bootFlow();
+  // Begin watching for SPA navigation after opening
+  try { startNavWatcher(); } catch {}
 }
 
 function closeModal() {
@@ -93,6 +96,7 @@ function closeModal() {
   // stop background polling when panel is closed
   try { if (buildWatchTimer) { clearInterval(buildWatchTimer); buildWatchTimer = null; } } catch {}
   try { if (selectWatchTimer) { clearInterval(selectWatchTimer); selectWatchTimer = null; } } catch {}
+  try { if (navWatchTimer) { clearInterval(navWatchTimer); navWatchTimer = null; } } catch {}
 }
 
 async function createUI() {
@@ -218,8 +222,11 @@ async function createUI() {
     }
   });
 
-  // 键盘快捷：左右箭头
+  // 键盘快捷：左右箭头 + 空格（收藏）
+  // 使用捕获阶段，并在 keydown/keypress/keyup 阶段拦截空格，避免传递到 YouTube 页面触发播放/暂停
   document.addEventListener('keydown', onCcKeydown, true);
+  document.addEventListener('keypress', onCcKeypress, true);
+  document.addEventListener('keyup', onCcKeyup, true);
 }
 
 // ===== "What's New" (更新提示) =====
@@ -267,10 +274,10 @@ function showWhatsNewOverlay(ver, mdText) {
     ov = document.createElement('div');
     ov.className = 'cc-update-overlay';
     ov.innerHTML = `
-      <div class="cc-update" role="dialog" aria-modal="true" aria-label="' + t('whats_new_aria') + '">
+      <div class="cc-update" role="dialog" aria-modal="true" aria-label="${t('whats_new_aria')}">
         <div class="cc-update-header">
           <div class="cc-update-title" id="cc-update-title"></div>
-          <button class="cc-mini-btn" id="cc-update-close" aria-label="' + t('action_close') + '" title="' + t('action_close') + '">
+          <button class="cc-mini-btn" id="cc-update-close" aria-label="${t('action_close')}" title="${t('action_close')}">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
           </button>
         </div>
@@ -280,7 +287,7 @@ function showWhatsNewOverlay(ver, mdText) {
           </div>
         </div>
         <div class="cc-update-bottom">
-          <button class="cc-btn-white" id="cc-update-dismiss">' + t('whats_new_dismiss') + '</button>
+          <button class="cc-btn-white" id="cc-update-dismiss">${t('whats_new_dismiss')}</button>
         </div>
       </div>`;
     modal.appendChild(ov);
@@ -373,6 +380,34 @@ function onCcKeydown(e) {
   renderLearnView();
 }
 
+// 在 keypress/keyup 阶段同样隔离空格，防止页面层收到事件（如 YouTube 播放/暂停）
+function shouldInterceptSpace(e) {
+  if (!modalOpen) return false;
+  const k = e.key;
+  if (!(k === ' ' || k === 'Spacebar' || e.code === 'Space')) return false;
+  const t = e.target;
+  const tag = (t && t.tagName ? t.tagName.toLowerCase() : '');
+  const isEditable = (tag === 'input' || tag === 'textarea' || (t && t.isContentEditable));
+  if (isEditable) return false;
+  const cards = currentState.cards || [];
+  if (!cards.length || ccGridMode) return false;
+  return true;
+}
+
+function onCcKeypress(e) {
+  if (!shouldInterceptSpace(e)) return;
+  e.preventDefault();
+  e.stopPropagation();
+  try { e.stopImmediatePropagation && e.stopImmediatePropagation(); } catch {}
+}
+
+function onCcKeyup(e) {
+  if (!shouldInterceptSpace(e)) return;
+  e.preventDefault();
+  e.stopPropagation();
+  try { e.stopImmediatePropagation && e.stopImmediatePropagation(); } catch {}
+}
+
 async function bootFlow() {
   const settings = await B.getSettings();
   if (!settings.apiKey) {
@@ -409,6 +444,8 @@ async function bootFlow() {
 }
 
 async function startFlow(forceRegenerate = false) {
+  // Ensure we have a stable videoId (YouTube SPA may not set URL params immediately)
+  try { await ensureVideoId(); } catch {}
   currentState = { ...currentState, candidates: null, selected: null, cards: null, error: null };
   setStep([t('steps_extract'), t('steps_filter'), t('steps_build')], 1);
   renderProgress(t('steps_extract') + '…');
@@ -505,6 +542,39 @@ async function startFlow(forceRegenerate = false) {
   }
 
   renderSelection();
+}
+
+// Watch for YouTube SPA navigation: if videoId changes while面板打开，自动重置并重启流程
+function startNavWatcher() {
+  try { if (navWatchTimer) { clearInterval(navWatchTimer); navWatchTimer = null; } } catch {}
+  navWatchTimer = setInterval(async () => {
+    if (!modalOpen) return;
+    try {
+      const info = B.getYouTubeVideoInfo();
+      const vid = info && info.videoId;
+      if (vid && currentState.videoId && vid !== currentState.videoId) {
+        // Detected a new video; reset state and restart pipeline
+        try { if (buildWatchTimer) { clearInterval(buildWatchTimer); buildWatchTimer = null; } } catch {}
+        try { if (selectWatchTimer) { clearInterval(selectWatchTimer); selectWatchTimer = null; } } catch {}
+        currentState = { videoId: vid, title: info.title || '', subtitlesText: null, captionLang: null, candidates: null, selected: null, cards: null, error: null };
+        setStep([t('steps_extract'), t('steps_filter'), t('steps_build')], 1);
+        renderProgress(t('steps_extract') + '…');
+        startFlow(true);
+      }
+    } catch {}
+  }, 900);
+}
+
+// Try repeatedly to get a non-empty videoId
+async function ensureVideoId(timeoutMs = 3000) {
+  const start = Date.now();
+  let info = B.getYouTubeVideoInfo();
+  while ((!info || !info.videoId) && (Date.now() - start) < timeoutMs) {
+    await new Promise(r => setTimeout(r, 150));
+    info = B.getYouTubeVideoInfo();
+  }
+  if (info && info.videoId) return info.videoId;
+  return null;
 }
 
 function setStep(steps, activeIndex) {
@@ -605,6 +675,18 @@ function renderSelection() {
   hideCenterOverlay();
   const content = uiRoot.querySelector('#cc-content');
   const items = currentState.candidates || [];
+  if (!items.length) {
+    content.innerHTML = `<div class="cc-card">
+      <div><b>${t('select_title')}</b></div>
+      <div class="cc-small" style="margin-top:6px">${t('empty_no_candidates') || '未提取到候选词。可以尝试重新生成或稍后重试。'}</div>
+      <div class="cc-controls" style="margin-top:10px">
+        <button class="cc-btn-white" id="cc-retry">${t('action_regenerate') || '重新生成'}</button>
+      </div>
+    </div>`;
+    content.querySelector('#cc-retry')?.addEventListener('click', () => startFlow(true));
+    updateBottomControls();
+    return;
+  }
   const toolbar = `
     <div class="cc-toolbar">
       <div class="cc-toolbar-title">${t('select_title')}</div>
@@ -762,6 +844,8 @@ function renderLearnView() {
   };
 
   doRender();
+  // Start SPA navigation watcher once we reach learn view or after panel is fully initialized
+  try { startNavWatcher(); } catch {}
 }
 
 function renderCardView(card) {
@@ -791,10 +875,11 @@ function renderExamplesQuote(list) {
 }
 
 function renderCardEditor(card) {
-  const c = { term: '', ipa: '', pos: '', definition: '', examples: [], notes: '', ...card };
+  const c = { term: '', reading: '', ipa: '', pos: '', definition: '', examples: [], notes: '', ...card };
   return `
     <div class="cc-editor">
       <label>${t('card_field_term')}</label><input class="cc-input" id="cc-term" value="${escapeAttr(c.term)}"/>
+      <label>Reading</label><input class="cc-input" id="cc-reading" value="${escapeAttr(c.reading||'')}"/>
       <label>${t('card_field_ipa')}</label><input class="cc-input" id="cc-ipa" value="${escapeAttr(c.ipa)}"/>
       <label>${t('card_field_pos')}</label><input class="cc-input" id="cc-pos" value="${escapeAttr(c.pos)}"/>
       <label>${t('card_field_definition')}</label><input class="cc-input" id="cc-def" value="${escapeAttr(c.definition)}"/>
@@ -806,6 +891,7 @@ function renderCardEditor(card) {
 
 function readCardEditor() {
   const term = document.getElementById('cc-term').value.trim();
+  const reading = (document.getElementById('cc-reading')?.value || '').trim();
   const ipa = document.getElementById('cc-ipa').value.trim();
   const pos = document.getElementById('cc-pos').value.trim();
   const definition = document.getElementById('cc-def').value.trim();
@@ -815,7 +901,7 @@ function readCardEditor() {
     .split(/\r?\n\s*\r?\n/) // blocks separated by blank line
     .map(b => b.replace(/\s+$/,'').replace(/^\s+/,'')).filter(Boolean);
   const notes = document.getElementById('cc-notes').value.trim();
-  return { term, ipa, pos, definition, examples, notes };
+  return { term, reading, ipa, pos, definition, examples, notes };
 }
 
 function escapeHtml(s) {
@@ -851,7 +937,7 @@ function formatPronunciation(raw, captionLang) {
   const clean = formatIpa(v);
   const lang = normalizeLang(captionLang);
   // Add slashes for IPA languages; keep raw for zh/ja/ko and unknowns
-  if (lang === 'en' || lang === 'ru' || lang === 'fr' || lang === 'de' || lang === 'es') {
+  if (lang === 'en' || lang === 'ru' || lang === 'fr' || lang === 'de' || lang === 'es' || lang === 'ko') {
     return '/' + escapeHtml(clean) + '/';
   }
   return escapeHtml(clean);
@@ -869,21 +955,20 @@ function formatPronunciationMeta(card, captionLang) {
     if (parts.length) return parts.join(' · ');
     return formatPronunciation(card.ipa || '', captionLang);
   }
+  if (lang === 'ja' || lang === 'ko' || lang === 'zh_CN' || lang === 'zh_TW') {
+    const reading = (card.reading || '').trim();
+    const term = (card.term || '').trim();
+    if (reading && reading !== term) return escapeHtml(reading);
+  }
   return formatPronunciation(card.ipa || '', captionLang);
 }
 
 // Enhanced examples renderer supporting pronunciation line for non-English sources
 function renderExamplesQuoteEx(list) {
   if (!list || !list.length) return '';
-  const srcLang = normalizeLang(currentState.captionLang);
   const blocks = list.slice(0, 2).map(raw => {
     const lines = String(raw).split(/\r?\n/).map(s => s.trim()).filter(Boolean);
     const l1 = lines[0] || '';
-    if (srcLang !== 'en') {
-      const l2 = lines[1] || '';
-      const l3 = lines[2] || '';
-      return `<blockquote><div>${escapeHtml(l1)}</div>${l2 ? `<div class="cc-small">${escapeHtml(l2)}</div>` : ''}${l3 ? `<div class="cc-small">${escapeHtml(l3)}</div>` : ''}</blockquote>`;
-    }
     const l2 = lines[1] || '';
     return `<blockquote><div>${escapeHtml(l1)}</div>${l2 ? `<div class="cc-small">${escapeHtml(l2)}</div>` : ''}</blockquote>`;
   }).join('');
@@ -949,34 +1034,54 @@ function buildContextForSelected(text, selected, captionLang, maxPerTerm = 2) {
     const list = Array.isArray(selected) ? selected : [];
     const raw = String(text || '');
     if (!raw || !list.length) return [];
-    const lines = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
     const lang = normalizeLang(captionLang);
-    const isLatin = (lang === 'en' || lang === 'fr' || lang === 'de' || lang === 'es' || lang === 'ru');
     const esc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const clip = (line, term) => {
-      const s = String(line);
-      if (s.length <= 160) return s;
-      let idx = -1;
-      try { idx = s.toLowerCase().indexOf(String(term || '').toLowerCase()); } catch {}
-      if (idx < 0) idx = Math.floor(s.length / 2);
-      const start = Math.max(0, idx - 60);
-      const end = Math.min(s.length, start + 160);
+    const clipAt = (s, idx) => {
+      const start = Math.max(0, idx - 80);
+      const end = Math.min(s.length, idx + 80);
       const head = start > 0 ? '…' : '';
       const tail = end < s.length ? '…' : '';
-      return head + s.slice(start, end).trim() + tail;
+      return head + s.slice(start, end).replace(/\s+/g, ' ').trim() + tail;
     };
     return list.map(it => {
       const term = String(it && it.term || '').trim();
       if (!term) return { term, lines: [] };
-      let re = null;
-      if (isLatin) re = new RegExp(`(^|[^A-Za-z0-9])${esc(term)}([^A-Za-z0-9]|$)`, 'i');
-      const hits = [];
-      for (const ln of lines) {
-        if (hits.length >= maxPerTerm) break;
-        const ok = isLatin ? re.test(ln) : ln.includes(term);
-        if (ok) hits.push(clip(ln, term));
+      const s = raw;
+      let indexes = [];
+      if (lang === 'ja' || lang === 'ko' || lang === 'zh_CN' || lang === 'zh_TW') {
+        // Substring search over full transcript
+        let pos = 0;
+        const needle = term;
+        while (indexes.length < maxPerTerm) {
+          const i = s.indexOf(needle, pos);
+          if (i === -1) break;
+          indexes.push(i);
+          pos = i + needle.length;
+        }
+      } else {
+        // Unicode-aware boundary search
+        try {
+          const re = new RegExp(`(^|[^\\p{L}\\p{M}\\p{N}'-])${esc(term)}([^\\p{L}\\p{M}\\p{N}'-]|$)`, 'giu');
+          let m;
+          while ((m = re.exec(s))) {
+            indexes.push(m.index + m[0].indexOf(term));
+            if (indexes.length >= maxPerTerm) break;
+          }
+        } catch {
+          // Fallback: case-insensitive indexOf over joined text
+          const hay = s.toLowerCase();
+          const needle = term.toLowerCase();
+          let pos = 0;
+          while (indexes.length < maxPerTerm) {
+            const i = hay.indexOf(needle, pos);
+            if (i === -1) break;
+            indexes.push(i);
+            pos = i + needle.length;
+          }
+        }
       }
-      return { term, lines: hits };
+      const lines = indexes.map(i => clipAt(s, i));
+      return { term, lines };
     });
   } catch { return []; }
 }
