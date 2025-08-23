@@ -1,10 +1,12 @@
 // Backend content script: caption extraction, storage, LLM calls; exposes API to UI via window.CaptiPrep.backend
 
 // Prevent multiple initialization of content script
+// Note: top-level `return` is illegal in content scripts, so avoid it.
 if (window.CaptiPrepContentLoaded) {
-  return; // Exit if already loaded
+  // Already loaded; keep definitions idempotent below.
+} else {
+  window.CaptiPrepContentLoaded = true;
 }
-window.CaptiPrepContentLoaded = true;
 
 // Avoid duplicate declarations when content script is injected multiple times
 if (!window.CC_NS) {
