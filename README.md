@@ -14,11 +14,14 @@
 ## 🤔 能做什么？
 ### 1｜自动获取字幕：自动从 YouTube 字幕提取关键词/短语
 ### 2｜智能筛选 & 生成闪卡：让 AI 进行初筛，再在面板中进行手动筛选后自动生成学习卡片，开始学习吧～
-<img width="1822" height="1097" alt="image" src="https://github.com/user-attachments/assets/40df55a5-6a7d-4668-b3ad-35d4ba56eec2" />
+<img width="1822" height="1180" alt="image" src="https://github.com/user-attachments/assets/868caa0c-8013-439f-8f6e-c04f67271e0c" />
+
 
 ---
 
-<img width="1822" height="1097" alt="image" src="https://github.com/user-attachments/assets/85b6a8c2-7fd3-4854-b901-47a962b9ddef" />
+<img width="1822" height="1180" alt="image" src="https://github.com/user-attachments/assets/7bcfae8a-81f7-4eee-9557-b82cb7c4728a" />
+
+
 
 ---
 
@@ -89,8 +92,16 @@
 2. 打开任意带英文字幕的 YouTube 视频，点击扩展图标。
 3. 在浮层面板：提取字幕 → 选择要学的词/短语 → 生成卡片 → 学习。**点击小键盘的左右可以切换单词卡，点击空格可以收藏该单词。**
 4. 点击右侧入口打开“单词本”，随时回顾已学内容。
-5. 点击导出按钮，可将单词打包导出。
+5. 点击导出按钮，可将单词打包导出为 csv。
 6. **模型选择**：请注意，推荐将筛选模型设置为 gemini-2.5-flash-lite，将制卡模型设置为 gemini-2.5-flash。
+
+---
+
+> [!WARNING]
+> **注意 ⚠️**
+> 
+> 为了避免冲突，请在使用 CaptiPrep 之前，将 YouTube 字幕切换成要学习的语言！
+
 
 ## ❓ 为什么有效
 - 先学再看：提前掌握词汇与表达，视频理解更顺畅。
