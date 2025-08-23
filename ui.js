@@ -246,8 +246,17 @@ async function maybeShowWhatsNew() {
 
 async function loadChangelogForVersion(ver) {
   try {
-    const url = chrome.runtime.getURL('assets/CHANGELOG.md');
-    const text = await fetch(url).then(r => r.ok ? r.text() : '');
+    // Resolve preferred UI language (settings override -> browser UI)
+    let pref = 'auto';
+    try { const s = await (B.getSettings ? B.getSettings() : Promise.resolve({})); pref = (s && s.uiLang) || 'auto'; } catch {}
+    let ui = pref && pref !== 'auto' ? pref : ((chrome.i18n && typeof chrome.i18n.getUILanguage === 'function') ? chrome.i18n.getUILanguage() : (navigator.language || 'en'));
+    const norm = (l => { const c = String(l||'').toLowerCase(); if (c.startsWith('en')) return 'en'; if (c.startsWith('zh')) return 'zh_CN'; return 'en'; })(ui);
+
+    // Only two localized files are supported by design
+    const path = norm === 'zh_CN' ? 'assets/CHANGELOG.zh_CN.md' : 'assets/CHANGELOG.en.md';
+    const url = chrome.runtime.getURL(path);
+    const res = await fetch(url);
+    const text = res && res.ok ? await res.text() : '';
     if (!text) return '';
     // Try to extract section for current version, headings like: ## v1.2.3 or ## 1.2.3
     const lines = text.split(/\r?\n/);

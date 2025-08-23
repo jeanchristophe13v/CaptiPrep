@@ -31,26 +31,60 @@
 ---
 ### 4｜可设置释义语言，多语言支持，各个国家的人都可以学习各个国家的语言！
 
-<img width="1822" height="1180" alt="Chinese(traditional)" src="https://github.com/user-attachments/assets/543fa9d7-024c-4619-bb55-cec191606b34" />
-<img width="1822" height="1180" alt="Chinese(simplified)" src="https://github.com/user-attachments/assets/d14eb772-8679-44e6-9c90-9376567bea4b" />
-<img width="1822" height="1180" alt="英语" src="https://github.com/user-attachments/assets/074c2f62-1c93-43d6-b9ee-ceb86a307e3c" />
-<img width="1822" height="1180" alt="西班牙语" src="https://github.com/user-attachments/assets/a259136a-9f58-4c0f-9474-c34a7d557940" />
-<img width="1822" height="1180" alt="日语" src="https://github.com/user-attachments/assets/4d028322-914a-4171-8a2a-e3d1193cfac7" />
-<img width="1822" height="1180" alt="韩语" src="https://github.com/user-attachments/assets/3c51cafe-34c7-4243-8670-5f87be6407fc" />
-<img width="1822" height="1180" alt="法语" src="https://github.com/user-attachments/assets/acc893fc-b00c-4d16-ac1a-18e22f5bba96" />
-<img width="1822" height="1180" alt="俄语" src="https://github.com/user-attachments/assets/dff198e4-8a04-4282-ad61-7cb0e29a519b" />
-<img width="1822" height="1180" alt="德语" src="https://github.com/user-attachments/assets/9ab5b61e-a4c5-4cc8-93ce-a8da446a43c8" />
-
-
-
+<table>
+  <tr>
+    <td align="center">
+      <a href="https://github.com/user-attachments/assets/d14eb772-8679-44e6-9c90-9376567bea4b"><img src="https://github.com/user-attachments/assets/d14eb772-8679-44e6-9c90-9376567bea4b" alt="Chinese (Simplified)" width="300" /></a>
+      <br><sub>简体中文 / Chinese (Simplified)</sub>
+    </td>
+    <td align="center">
+      <a href="https://github.com/user-attachments/assets/543fa9d7-024c-4619-bb55-cec191606b34"><img src="https://github.com/user-attachments/assets/543fa9d7-024c-4619-bb55-cec191606b34" alt="Chinese (Traditional)" width="300" /></a>
+      <br><sub>繁體中文 / Chinese (Traditional)</sub>
+    </td>
+    <td align="center">
+      <a href="https://github.com/user-attachments/assets/074c2f62-1c93-43d6-b9ee-ceb86a307e3c"><img src="https://github.com/user-attachments/assets/074c2f62-1c93-43d6-b9ee-ceb86a307e3c" alt="English" width="300" /></a>
+      <br><sub>英语 / English</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="https://github.com/user-attachments/assets/a259136a-9f58-4c0f-9474-c34a7d557940"><img src="https://github.com/user-attachments/assets/a259136a-9f58-4c0f-9474-c34a7d557940" alt="Spanish" width="300" /></a>
+      <br><sub>西班牙语 / Español (Spanish)</sub>
+    </td>
+    <td align="center">
+      <a href="https://github.com/user-attachments/assets/4d028322-914a-4171-8a2a-e3d1193cfac7"><img src="https://github.com/user-attachments/assets/4d028322-914a-4171-8a2a-e3d1193cfac7" alt="Japanese" width="300" /></a>
+      <br><sub>日语 / 日本語 (Japanese)</sub>
+    </td>
+    <td align="center">
+      <a href="https://github.com/user-attachments/assets/3c51cafe-34c7-4243-8670-5f87be6407fc"><img src="https://github.com/user-attachments/assets/3c51cafe-34c7-4243-8670-5f87be6407fc" alt="Korean" width="300" /></a>
+      <br><sub>韩语 / 한국어 (Korean)</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="https://github.com/user-attachments/assets/acc893fc-b00c-4d16-ac1a-18e22f5bba96"><img src="https://github.com/user-attachments/assets/acc893fc-b00c-4d16-ac1a-18e22f5bba96" alt="French" width="300" /></a>
+      <br><sub>法语 / Français (French)</sub>
+    </td>
+    <td align="center">
+      <a href="https://github.com/user-attachments/assets/dff198e4-8a04-4282-ad61-7cb0e29a519b"><img src="https://github.com/user-attachments/assets/dff198e4-8a04-4282-ad61-7cb0e29a519b" alt="Russian" width="300" /></a>
+      <br><sub>俄语 / Русский (Russian)</sub>
+    </td>
+    <td align="center">
+      <a href="https://github.com/user-attachments/assets/9ab5b61e-a4c5-4cc8-93ce-a8da446a43c8"><img src="https://github.com/user-attachments/assets/9ab5b61e-a4c5-4cc8-93ce-a8da446a43c8" alt="German" width="300" /></a>
+      <br><sub>德语 / Deutsch (German)</sub>
+    </td>
+  </tr>
+</table>
 
 ---
 
 ## ⚙️ 使用方法
 1. 安装：
-chrome 插件商店：https://chromewebstore.google.com/detail/captiprep/jgbcfnmpjaflngdajjjnlehfkfohlmfl?authuser=0
-edge 扩展商店：https://microsoftedge.microsoft.com/addons/detail/captiprep/fbfhhgelelmeopkjdihhklkcncbikjem
-开发：Chrome → `chrome://extensions` → 打开“开发者模式” → “加载已解压的扩展程序” → 选择本仓库目录。（请先 git clone https://github.com/jeanchristophe13v/CaptiPrep.git）
+- chrome 插件商店：https://chromewebstore.google.com/detail/captiprep/jgbcfnmpjaflngdajjjnlehfkfohlmfl?authuser=0
+
+- edge 扩展商店：https://microsoftedge.microsoft.com/addons/detail/captiprep/fbfhhgelelmeopkjdihhklkcncbikjem
+
+- 开发：Chrome → `chrome://extensions` → 打开“开发者模式” → “加载已解压的扩展程序” → 选择本仓库目录。（请先 git clone https://github.com/jeanchristophe13v/CaptiPrep.git）
 
 2. 打开任意带英文字幕的 YouTube 视频，点击扩展图标。
 3. 在浮层面板：提取字幕 → 选择要学的词/短语 → 生成卡片 → 学习。**点击小键盘的左右可以切换单词卡，点击空格可以收藏该单词。**
