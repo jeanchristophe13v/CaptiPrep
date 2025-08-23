@@ -521,7 +521,20 @@ function postProcessCandidates(parsed, subtitlesText, captionLang, maxItems) {
       return stop.has(key);
     };
 
-    const filtered = items
+    // Deduplicate by term (case-insensitive for Latin/Cyrillic; exact for CJK/Korean)
+    const isLatin = ['en','fr','de','es','ru'].includes(lang);
+    const norm = (s) => isLatin ? String(s || '').toLowerCase().trim() : String(s || '').trim();
+    const mergedMap = new Map();
+    for (const it of items) {
+      const k = norm(it.term);
+      if (!k) continue;
+      const prev = mergedMap.get(k);
+      if (!prev) mergedMap.set(k, { term: it.term, type: it.type || 'word', freq: it.freq || 1 });
+      else prev.freq = (prev.freq || 1) + (it.freq || 1);
+    }
+    const merged = Array.from(mergedMap.values());
+
+    const filtered = merged
       .filter(it => contains(String(it.term || '').trim()))
       .filter(it => !isStop(it.term))
       .filter(it => scriptOk(it.term));

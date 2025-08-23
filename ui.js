@@ -453,8 +453,33 @@ async function startFlow(forceRegenerate = false) {
     const { videoId, title } = B.getYouTubeVideoInfo();
     currentState.videoId = videoId;
     currentState.title = title;
-    if (!forceRegenerate) {
-      const saved = await B.loadVideoData(videoId);
+    // Load saved state and detect if user changed CC selection on the page
+    const saved = await B.loadVideoData(videoId);
+    let shouldForce = !!forceRegenerate;
+    let currentSig = '';
+    try {
+      if (B.getSelectedCaptionTrack) {
+        const sel = await B.getSelectedCaptionTrack();
+        if (sel) {
+          const t = sel.translationLanguage;
+          const tlang = typeof t === 'string' ? t : (t && t.languageCode) || '';
+          currentSig = [sel.languageCode || '', sel.vssId || '', sel.kind || '', tlang || ''].join('|');
+          const prevSig = saved && saved.selectedTrackSig;
+          if (!shouldForce && prevSig && currentSig && prevSig !== currentSig) {
+            shouldForce = true;
+          }
+          // If no previous signature, but saved.captionLang differs from current selected language, also force
+          if (!shouldForce && saved && saved.captionLang && sel.languageCode && saved.captionLang !== sel.languageCode) {
+            shouldForce = true;
+          }
+        }
+      }
+    } catch {}
+    // If forcing due to track change, clear persisted intermediate state to avoid mixing
+    if (shouldForce) {
+      try { await B.saveVideoData(videoId, { subtitlesText: null, candidates: null, selected: null, cards: null }); } catch {}
+    }
+    if (!shouldForce) {
       if (saved && saved.cards?.length) {
         currentState = { ...currentState, ...saved };
         renderLearnView();
@@ -497,6 +522,13 @@ async function startFlow(forceRegenerate = false) {
         renderProgress(t('progress_filtering'));
         await B.saveVideoData(currentState.videoId, { selecting: true });
         try {
+          // Refresh captionLang from currently selected track as a guard
+          try {
+            if (B.getSelectedCaptionTrack) {
+              const sTrack = await B.getSelectedCaptionTrack();
+              if (sTrack && sTrack.languageCode) currentState.captionLang = sTrack.languageCode;
+            }
+          } catch {}
           const sampled = sampleTranscript(currentState.subtitlesText, 12000);
           const resp = await B.llmCall('first', { subtitlesText: sampled, captionLang: currentState.captionLang, maxItems: 60 });
           currentState.candidates = resp.items || [];
@@ -518,8 +550,31 @@ async function startFlow(forceRegenerate = false) {
       currentState.subtitlesText = cap && cap.text || '';
       currentState.captionLang = cap && cap.lang || null;
     }
+    // If extraction did not provide a language, infer from current selected track
+    if (!currentState.captionLang) {
+      try {
+        if (B.getSelectedCaptionTrack) {
+          const sel3 = await B.getSelectedCaptionTrack();
+          if (sel3 && sel3.languageCode) currentState.captionLang = sel3.languageCode;
+        }
+      } catch {}
+    }
     const createdAt = formatDateYYYYMMDD(new Date());
-    await B.saveVideoData(currentState.videoId, { subtitlesText: currentState.subtitlesText, captionLang: currentState.captionLang, title, createdAt });
+    const toSave = { subtitlesText: currentState.subtitlesText, captionLang: currentState.captionLang, title, createdAt };
+    if (currentSig) toSave.selectedTrackSig = currentSig;
+    else {
+      try {
+        if (B.getSelectedCaptionTrack) {
+          const sel2 = await B.getSelectedCaptionTrack();
+          if (sel2) {
+            const t2 = sel2.translationLanguage;
+            const tlang2 = typeof t2 === 'string' ? t2 : (t2 && t2.languageCode) || '';
+            toSave.selectedTrackSig = [sel2.languageCode || '', sel2.vssId || '', sel2.kind || '', tlang2 || ''].join('|');
+          }
+        }
+      } catch {}
+    }
+    await B.saveVideoData(currentState.videoId, toSave);
   } catch (e) {
     currentState.error = String(e?.message || e);
     renderError(t('error_captions'), currentState.error);

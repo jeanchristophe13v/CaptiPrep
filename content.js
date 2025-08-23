@@ -303,33 +303,32 @@ function transcriptSegmentsToLines(transcriptData) {
 
 function chooseDefaultTrack(tracks, selected) {
   if (!Array.isArray(tracks) || !tracks.length) return null;
-  const isTranslatedSel = !!(selected && ((selected.vssId && /^a\./.test(selected.vssId)) || selected.translationLanguage));
   const safeTracks = tracks.filter(t => !/[?&]tlang=/.test(String(t.baseUrl || '')));
   const pool = safeTracks.length ? safeTracks : tracks;
 
-  // If a selected track is provided and not an auto-translate, try to match it by vssId or languageCode
-  if (!isTranslatedSel && selected && (selected.vssId || selected.languageCode)) {
-    const byVss = selected.vssId ? pool.find(t => t.vssId === selected.vssId) : null;
-    if (byVss) return byVss;
-    if (selected.languageCode) {
-      const sameLangNonAsr = pool.find(t => (t.languageCode === selected.languageCode) && (!t.kind || t.kind !== 'asr'));
-      if (sameLangNonAsr) return sameLangNonAsr;
-      const sameLangAny = pool.find(t => t.languageCode === selected.languageCode);
-      if (sameLangAny) return sameLangAny;
+  // If user selected a non-translation track (e.g., auto-generated in the native language), honor it by language and kind
+  const isTranslatedSel = !!(selected && selected.translationLanguage);
+  if (selected && !isTranslatedSel) {
+    const lang = selected.languageCode || selected.lang || '';
+    const kind = (selected.kind || '').toLowerCase();
+    // Exact vssId match
+    if (selected.vssId) {
+      const byVss = pool.find(t => t.vssId === selected.vssId);
+      if (byVss) return byVss;
+    }
+    // Prefer same language + same kind
+    if (lang) {
+      const byLangKind = pool.find(t => (t.languageCode === lang) && ((t.kind || '').toLowerCase() === kind));
+      if (byLangKind) return byLangKind;
+      // Then any with same language
+      const byLang = pool.find(t => t.languageCode === lang);
+      if (byLang) return byLang;
     }
   }
 
-  // If selected track is an auto-translate, try to fall back to the likely source language track
-  if (isTranslatedSel && selected && selected.languageCode) {
-    const sameLangNonAsr = pool.find(t => (t.languageCode === selected.languageCode) && (!t.kind || t.kind !== 'asr'));
-    if (sameLangNonAsr) return sameLangNonAsr;
-    const sameLangAny = pool.find(t => t.languageCode === selected.languageCode);
-    if (sameLangAny) return sameLangAny;
-  }
-
-  // Prefer non-ASR among remaining
-  const nonAsr = pool.filter(t => !t.kind || t.kind !== 'asr');
-  return nonAsr[0] || pool[0] || null;
+  // If selection is a translation, avoid using it; pick the first sane non-translation track (usually the source CC)
+  const nonAsrFirst = pool.find(t => !t.kind || t.kind !== 'asr');
+  return nonAsrFirst || pool[0] || null;
 }
 
 async function tryTranscriptViaPage(videoId) {
@@ -342,12 +341,9 @@ async function tryTranscriptViaPage(videoId) {
     // IMPORTANT: the transcript panel may default to auto-translated language based on previous videos.
     // We do NOT want translated transcripts. We’ll still read a token, but only use it as a fallback
     // and prefer captionTracks fetch path for original captions.
-    const token = extractTranscriptTokenFromNext(nextData);
-    if (!token) return '';
-    const trRes = await ytApiPostMainWorld('/get_transcript', { ...session, params: token });
-    if (!trRes.ok) return '';
-    const lines = transcriptSegmentsToLines(trRes.json || {});
-    const text = lines.join('\n').trim();
+    // Disable transcript panel fallback to avoid auto-translation bleed-through.
+    // Keeping the code for potential future gated use, but returning empty to skip this path.
+    const text = '';
     // Try to infer language from currently selected CC, falling back to available tracks
     let lang = 'und';
     try {
@@ -384,15 +380,32 @@ async function extractCaptionsText() {
     }
   } catch (e) { dlog('Player response method failed:', e?.message || e); }
 
-  // 2) Fallback: transcript panel via InnerTube (may reflect current UI language; best-effort)
+  // 2) Fallback: call InnerTube /player for a fresh playerResponse (often includes captionTracks when the initial snapshot lacks them)
   try {
     const { videoId } = getYouTubeVideoInfo();
     if (videoId) {
-      const res = await tryTranscriptViaPage(videoId);
-      if (res && typeof res === 'object' && res.text && res.text.trim()) return res;
-      if (typeof res === 'string' && res.trim()) return { text: res, lang: 'und' };
+      const session = { context: { client: { hl: 'en', gl: 'US', clientName: 'WEB' }, user: { enableSafetyMode: false }, request: { useSsl: true } } };
+      const prRes = await ytApiPostMainWorld('/player', { ...session, videoId });
+      if (prRes && prRes.ok) {
+        const pr = prRes.json || null;
+        const tracks = pr?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+        const selected = await getSelectedCaptionTrackMainWorld();
+        const pick = chooseDefaultTrack(tracks, selected);
+        if (pick && pick.baseUrl) {
+          const base = pick.baseUrl;
+          const finalLang = pick.languageCode || 'und';
+          for (const fmt of ['json3','srv3','vtt']) {
+            try {
+              const text = await fetchAndExtract(buildUrlWithFmt(base, fmt));
+              if (text && text.trim()) return { text, lang: finalLang };
+            } catch {}
+          }
+        }
+      } else {
+        dlog('InnerTube /player fallback failed:', prRes && prRes.status, prRes && prRes.error);
+      }
     }
-  } catch (e) { dlog('Page InnerTube path failed:', e?.message || e); }
+  } catch (e) { dlog('InnerTube /player fallback error:', e?.message || e); }
 
   const { videoId } = getYouTubeVideoInfo();
   if (!videoId) throw new Error(window.t('error_no_video'));
@@ -408,6 +421,27 @@ async function extractCaptionsText() {
     saveVideoData,
     getYouTubeVideoInfo,
     extractCaptionsText,
+    // Expose current selected caption track (from page context)
+    async getSelectedCaptionTrack() {
+      try {
+        await ensureInjectorLoaded();
+        const raw = await getSelectedCaptionTrackMainWorld();
+        if (!raw) return null;
+        // Normalize translationLanguage to a code string if possible
+        let tl = '';
+        try {
+          const t = raw.translationLanguage;
+          tl = typeof t === 'string' ? t : (t && (t.languageCode || t.lang || '')) || '';
+        } catch {}
+        return {
+          languageCode: raw.languageCode || raw.lang || '',
+          vssId: raw.vssId || '',
+          kind: raw.kind || '',
+          translationLanguage: tl,
+          name: raw.name || ''
+        };
+      } catch { return null; }
+    },
   };
   globalThis.CaptiPrep = Object.assign(globalThis.CaptiPrep || {}, { backend });
   dlog('Backend exposed');
